@@ -1,2 +1,3 @@
 # GenPlay
-GenPlay – AI‑Native Interactive Video Game Platform.
+
+GenPlay – AI-Native Interactive Game Agent Platform.
