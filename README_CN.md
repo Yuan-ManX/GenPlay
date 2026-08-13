@@ -1,6 +1,7 @@
 <div align="center">
 
-<img src="assets/GenPlay.png" alt="GenPlay" width="120" />
+<img src="assets/GenPlay.png" alt="GenPlay" />
+
 
 # GenPlay
 
@@ -8,9 +9,17 @@
 
 > 让想象变得可玩 —— 一个 Agent 一个 Agent 地构筑 AI 原生游戏。
 
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Stars](https://img.shields.io/github/stars/Yuan-ManX/GenPlay?style=social)
+
+[Melo](#什么是-melo) · [创新](#创新) · [特征](#特征) · [模型](#语音模型) · [工作台](#创作工作台) · [场景](#使用场景) · [开始](#快速开始) · [哲学](#哲学)
+
+#### [English](./README.md) | [中文文档](./README_CN.md)
+
 </div>
 
----
+
 
 ## 关于 GenPlay
 
@@ -29,7 +38,7 @@ GenPlay 沿着两条交织的路径展开：
 
 GenPlay 不止是一件工具，更是一座 **发明家的游乐场** —— 一个在 AI 时代重新思考"游戏是什么、我们该如何去玩"的地方。
 
----
+
 
 ## 创作与编辑：让 AI 原生游戏活起来
 
@@ -41,7 +50,7 @@ GenPlay 不止是一件工具，更是一座 **发明家的游乐场** —— �
 - **记住你的世界** —— AI 原生角色与场景会把过往的每一刻延续下去，让你的作品持续生长为一个鲜活的所在，每一次编辑都在前一次的基础上延伸。
 - **从提示到生态** —— 平台本身即是画布。从一句想法起步，生长为鲜活而彼此联结的游戏世界 —— 以及其间的一切可能。
 
----
+
 
 ## 探索：AI 原生游戏的下一种形态
 
@@ -54,13 +63,13 @@ GenPlay 不止是一件工具，更是一座 **发明家的游乐场** —— �
 
 在 GenPlay，你不受"游戏过去是什么"的束缚 —— 而是去定义"它们还能成为什么"。
 
----
+
 
 ## 快速开始
 
 ```bash
 # 克隆仓库
-git clone https://github.com/Yuan-Man/GenPlay.git
+git clone https://github.com/Yuan-ManX/GenPlay.git
 cd GenPlay
 
 # 安装依赖
@@ -70,22 +79,18 @@ npm install
 npm run dev
 ```
 
-环境启动后，打开浏览器即可开启你的第一件 AI 原生作品。描述你想象中的世界，让 Agent 与你一起开始构建。
 
-> 各平台与 Agent 工具集的详细配置即将推出。
+## 许可
 
----
+GenPlay 基于 MIT 许可证开源。详见 [LICENSE](./LICENSE)。
 
-## 参与贡献
 
-GenPlay 由创作者构建，也为创作者而生。我们欢迎一切能够推动 AI 原生玩法边界的想法、反馈与贡献。
+## Star 历史
 
-参与的方式有很多 —— 分享你的作品、提出新的交互构想、反馈你的发现，或共同塑造平台本身。每一份声音都在推动边界前行。
+如果这个愿景触动了你，欢迎 ⭐ Star 本仓库。你的支持让 GenPlay 走得更远。
 
-阅读我们的 [参与贡献指南](CONTRIBUTING_CN.md) 即可开始。
-
----
-
-## 许可证
-
-[MIT](LICENSE) © 2026 Yuan-Man
+<p align="center">
+  <a href="https://star-history.com/#Yuan-Man/GenPlay&Date">
+    <img src="https://api.star-history.com/svg?repos=Yuan-Man/GenPlay&type=Date" />
+  </a>
+</p>
