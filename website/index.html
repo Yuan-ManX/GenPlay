@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GenPlay — AI-Native Interactive Game Agent Platform</title>
+  <meta name="description" content="GenPlay is an AI-native game creation & editing platform. Craft, refine, and explore AI-native games where the agent is the very medium of play." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- Ambient background layers -->
+  <div class="bg-layer" aria-hidden="true">
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+    <div class="orb orb-c"></div>
+    <div class="grid-overlay"></div>
+  </div>
+
+  <!-- Cursor glow -->
+  <div class="cursor-glow" aria-hidden="true"></div>
+
+  <!-- Navigation -->
+  <header class="nav" id="nav">
+    <div class="nav-inner container">
+      <a href="#top" class="brand">
+        <span class="brand-mark">◆</span>
+        <span class="brand-name">GenPlay</span>
+      </a>
+      <nav class="nav-links" id="navLinks">
+        <a href="#create">Create</a>
+        <a href="#explore">Explore</a>
+        <a href="#features">Features</a>
+        <a href="#playground">Playground</a>
+      </nav>
+      <div class="nav-actions">
+        <a href="#playground" class="btn btn-ghost nav-cta">Enter the World</a>
+        <div class="lang-dropdown" id="langDropdown">
+          <button class="lang-trigger" id="langTrigger" aria-haspopup="true" aria-expanded="false" aria-label="Select language" title="Select language">
+            <svg class="lang-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="M3 12h18"></path>
+              <path d="M12 3c2.5 2.6 3.8 5.7 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z"></path>
+            </svg>
+          </button>
+          <div class="lang-menu" id="langMenu">
+            <a href="index.html" class="lang-option active">English</a>
+            <a href="index_CN.html" class="lang-option">中文</a>
+          </div>
+        </div>
+      </div>
+      <button class="nav-burger" id="navBurger" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero container" id="top">
+
+    <h1 class="hero-title reveal">
+      Where imagination
+      <span class="grad-text">becomes playable.</span>
+    </h1>
+
+    <p class="hero-sub reveal">
+      GenPlay is an AI-native game creation &amp; editing platform. Craft, refine, and explore games
+      where the <strong>agent is the very medium of play</strong> — every world, character, and rule,
+      born from living conversation.
+    </p>
+
+    <div class="hero-actions reveal">
+      <a href="#playground" class="btn btn-primary magnetic">Start Creating</a>
+      <a href="#explore" class="btn btn-ghost magnetic">Explore the Frontiers</a>
+    </div>
+  </section>
+
+  <!-- Marquee -->
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee-track">
+      <span>New Gameplay</span><i>✦</i>
+      <span>New Interaction Modes</span><i>✦</i>
+      <span>New Game Types</span><i>✦</i>
+      <span>Agent-Driven Editing</span><i>✦</i>
+      <span>Living Worlds</span><i>✦</i>
+      <span>Conversational Creation</span><i>✦</i>
+      <span>New Gameplay</span><i>✦</i>
+      <span>New Interaction Modes</span><i>✦</i>
+      <span>New Game Types</span><i>✦</i>
+      <span>Agent-Driven Editing</span><i>✦</i>
+      <span>Living Worlds</span><i>✦</i>
+      <span>Conversational Creation</span><i>✦</i>
+    </div>
+  </div>
+
+  <!-- Create & Edit -->
+  <section class="section container" id="create">
+    <div class="section-head reveal">
+      <span class="eyebrow">Create &amp; Edit</span>
+      <h2>Bringing AI-native games <span class="grad-text">to life.</span></h2>
+      <p>Creation and editing are not separate steps — they are one continuous act of making, guided by agents at every turn.</p>
+    </div>
+
+    <div class="grid-3">
+      <article class="card reveal tilt">
+        <div class="card-icon">✳</div>
+        <h3>Agent-First Creation</h3>
+        <p>The agent is the core of the craft. Characters reason, react, and co-create with you — turning vague ideas into concrete, playable worlds.</p>
+      </article>
+      <article class="card reveal tilt">
+        <div class="card-icon">🗨</div>
+        <h3>Conversational Editing</h3>
+        <p>Reshape your game by simply talking to it. Agents translate your intent into playable content, as naturally as holding a conversation.</p>
+      </article>
+      <article class="card reveal tilt">
+        <div class="card-icon">◉</div>
+        <h3>Worlds That Remember</h3>
+        <p>AI-native characters and settings carry past moments forward, so every edit builds on what came before — a place that keeps growing.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- Explore -->
+  <section class="section container alt" id="explore">
+    <div class="section-head reveal">
+      <span class="eyebrow">Explore</span>
+      <h2>The next shape of <span class="grad-text">AI-native games.</span></h2>
+      <p>A launchpad for discovering what play can become — built to question the familiar and invent what comes next.</p>
+    </div>
+
+    <div class="explore-list">
+      <div class="explore-row reveal">
+        <span class="explore-num">01</span>
+        <h3>New Gameplay</h3>
+        <p>Play that no static ruleset could express — agents generate, adapt, and evolve it in ways that surprise even their creators.</p>
+      </div>
+      <div class="explore-row reveal">
+        <span class="explore-num">02</span>
+        <h3>New Interaction Modes</h3>
+        <p>Play that moves beyond screens and controllers: conversational play, emergent dialogue, worlds that respond to you as a person.</p>
+      </div>
+      <div class="explore-row reveal">
+        <span class="explore-num">03</span>
+        <h3>New Game Types</h3>
+        <p>Genres that exist only in an AI-native world: stories that write themselves, worlds that remember you, challenges that never repeat.</p>
+      </div>
+      <div class="explore-row reveal">
+        <span class="explore-num">04</span>
+        <h3>New Creative Workflows</h3>
+        <p>Reimagine how games are made — from a single prompt to a living ecosystem, opening doors that traditional pipelines never reached.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="section container" id="features">
+    <div class="section-head reveal">
+      <span class="eyebrow">The Platform</span>
+      <h2>A <span class="grad-text">playground for invention.</span></h2>
+      <p>More than a tool — a home for rethinking what a game is, and how we play it, in the age of AI.</p>
+    </div>
+
+    <div class="feature-board reveal">
+      <div class="feature-cell">
+        <h4>Live Co-Creation</h4>
+        <p>Agents act as co-designers who propose, adapt, and refine alongside you — without ever pausing the action.</p>
+      </div>
+      <div class="feature-cell">
+        <h4>Multi-Platform Play</h4>
+        <p>One creation, everywhere. Carry your progress and your world seamlessly across devices and clients.</p>
+      </div>
+      <div class="feature-cell">
+        <h4>From Prompt to Ecosystem</h4>
+        <p>Begin from a single idea and grow it into a living, interconnected game world — and everything in between.</p>
+      </div>
+      <div class="feature-cell">
+        <h4>Open Interaction Paradigms</h4>
+        <p>Play beyond the screen, native to the AI era and free from the limits of traditional control.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Playground CTA -->
+  <section class="section container" id="playground">
+    <div class="playground reveal">
+      <span class="eyebrow">Your world awaits</span>
+      <h2>Describe the world you imagine.<br /><span class="grad-text">Let the agent build with you.</span></h2>
+      <p>You are not bound by what games were — you define what they can be.</p>
+      <div class="hero-actions">
+        <a href="#" class="btn btn-primary magnetic">Start Creating</a>
+        <a href="#top" class="btn btn-ghost magnetic">Back to Top</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="brand-mark">◆</span>
+        <span class="brand-name">GenPlay</span>
+        <p>AI-Native Interactive Game Agent Platform</p>
+      </div>
+      <div class="footer-note">
+        <p>Built for creators, by creators.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
