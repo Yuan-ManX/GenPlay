@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GenPlay — AI 原生交互式游戏 Agent 平台</title>
+  <meta name="description" content="GenPlay 是一个 AI 原生的游戏创作与编辑平台。在这里，Agent 本身成为游戏表达的媒介，探索只有 AI 原生世界才能承载的玩法、交互与游戏类型。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- Ambient background layers -->
+  <div class="bg-layer" aria-hidden="true">
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+    <div class="orb orb-c"></div>
+    <div class="grid-overlay"></div>
+  </div>
+
+  <!-- Cursor glow -->
+  <div class="cursor-glow" aria-hidden="true"></div>
+
+  <!-- Navigation -->
+  <header class="nav" id="nav">
+    <div class="nav-inner container">
+      <a href="#top" class="brand">
+        <span class="brand-mark">◆</span>
+        <span class="brand-name">GenPlay</span>
+      </a>
+      <nav class="nav-links" id="navLinks">
+        <a href="#create">创作</a>
+        <a href="#explore">探索</a>
+        <a href="#features">平台</a>
+        <a href="#playground">开始</a>
+      </nav>
+      <div class="nav-actions">
+        <a href="#playground" class="btn btn-ghost nav-cta">进入世界</a>
+        <div class="lang-dropdown" id="langDropdown">
+          <button class="lang-trigger" id="langTrigger" aria-haspopup="true" aria-expanded="false" aria-label="选择语言" title="选择语言">
+            <svg class="lang-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="M3 12h18"></path>
+              <path d="M12 3c2.5 2.6 3.8 5.7 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z"></path>
+            </svg>
+          </button>
+          <div class="lang-menu" id="langMenu">
+            <a href="index.html" class="lang-option">English</a>
+            <a href="index_CN.html" class="lang-option active">中文</a>
+          </div>
+        </div>
+      </div>
+      <button class="nav-burger" id="navBurger" aria-label="菜单">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero container" id="top">
+
+    <h1 class="hero-title reveal">
+      让想象
+      <span class="grad-text">变得可玩。</span>
+    </h1>
+
+    <p class="hero-sub reveal">
+      GenPlay 是一个 AI 原生的游戏创作与编辑平台。在这里创作、打磨并探索游戏，
+      让 <strong>Agent 本身成为游戏表达的媒介</strong> —— 每一个世界、角色与规则，都源自活着的对话。
+    </p>
+
+    <div class="hero-actions reveal">
+      <a href="#playground" class="btn btn-primary magnetic">开始创作</a>
+      <a href="#explore" class="btn btn-ghost magnetic">探索新边界</a>
+    </div>
+  </section>
+
+  <!-- Marquee -->
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee-track">
+      <span>新玩法</span><i>✦</i>
+      <span>新交互模式</span><i>✦</i>
+      <span>新游戏类型</span><i>✦</i>
+      <span>Agent 驱动编辑</span><i>✦</i>
+      <span>活着的世界</span><i>✦</i>
+      <span>对话式创作</span><i>✦</i>
+      <span>新玩法</span><i>✦</i>
+      <span>新交互模式</span><i>✦</i>
+      <span>新游戏类型</span><i>✦</i>
+      <span>Agent 驱动编辑</span><i>✦</i>
+      <span>活着的世界</span><i>✦</i>
+      <span>对话式创作</span><i>✦</i>
+    </div>
+  </div>
+
+  <!-- Create & Edit -->
+  <section class="section container" id="create">
+    <div class="section-head reveal">
+      <span class="eyebrow">创作与编辑</span>
+      <h2>让 AI 原生游戏 <span class="grad-text">活起来。</span></h2>
+      <p>创作与编辑并非两个独立的步骤，而是一场由 Agent 全程引导、持续进行的创造行为。</p>
+    </div>
+
+    <div class="grid-3">
+      <article class="card reveal tilt">
+        <div class="card-icon">✳</div>
+        <h3>Agent 优先的创作</h3>
+        <p>Agent 是创作的核心。角色实时推理、回应并与你共同创造，把模糊的想法变成具体可玩的世界。</p>
+      </article>
+      <article class="card reveal tilt">
+        <div class="card-icon">🗨</div>
+        <h3>对话式编辑</h3>
+        <p>直接与游戏对话即可重塑它。Agent 将你的意图转化为可玩内容，让你像聊天一样自然地塑造世界。</p>
+      </article>
+      <article class="card reveal tilt">
+        <div class="card-icon">◉</div>
+        <h3>记住你的世界</h3>
+        <p>AI 原生角色与场景会把过往延续下去，让每一次编辑都建立在前一次之上 —— 一个持续生长的所在。</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- Explore -->
+  <section class="section container alt" id="explore">
+    <div class="section-head reveal">
+      <span class="eyebrow">探索</span>
+      <h2>AI 原生游戏的 <span class="grad-text">下一种形态。</span></h2>
+      <p>一座发现"游戏在 AI 时代还能成为什么"的起点，为"打破熟悉、发明未来"而生。</p>
+    </div>
+
+    <div class="explore-list">
+      <div class="explore-row reveal">
+        <span class="explore-num">01</span>
+        <h3>新玩法</h3>
+        <p>任何静态规则集都无法表达的游戏体验 —— Agent 生成、适应并演化它，甚至给创作者带来惊喜。</p>
+      </div>
+      <div class="explore-row reveal">
+        <span class="explore-num">02</span>
+        <h3>新交互模式</h3>
+        <p>超越屏幕与手柄的游玩：对话式游玩、涌现式对白，以及把你当作"人"而非仅仅"玩家"来回应的世界。</p>
+      </div>
+      <div class="explore-row reveal">
+        <span class="explore-num">03</span>
+        <h3>新游戏类型</h3>
+        <p>只存在于 AI 原生世界的品类：自行书写的故事、记住你的世界、永不复现的挑战。</p>
+      </div>
+      <div class="explore-row reveal">
+        <span class="explore-num">04</span>
+        <h3>新创作流程</h3>
+        <p>重新构想游戏的制造方式 —— 从一句提示到一个鲜活的生态，打开传统流程从未触及的门。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="section container" id="features">
+    <div class="section-head reveal">
+      <span class="eyebrow">平台</span>
+      <h2>一座 <span class="grad-text">发明家的游乐场。</span></h2>
+      <p>不止是一件工具 —— 一个在 AI 时代重新思考"游戏是什么、我们该如何去玩"的地方。</p>
+    </div>
+
+    <div class="feature-board reveal">
+      <div class="feature-cell">
+        <h4>实时共创</h4>
+        <p>Agent 作为共同设计者，与你一起提议、调整与打磨 —— 全程不停歇。</p>
+      </div>
+      <div class="feature-cell">
+        <h4>多端畅玩</h4>
+        <p>一次创作，处处可玩。让你的进度与世界在设备与客户端间无缝延续。</p>
+      </div>
+      <div class="feature-cell">
+        <h4>从提示到生态</h4>
+        <p>从一句想法起步，生长为鲜活而彼此联结的游戏世界 —— 以及其间的一切可能。</p>
+      </div>
+      <div class="feature-cell">
+        <h4>开放的交互范式</h4>
+        <p>超越屏幕、天然属于 AI 时代的玩法，摆脱传统操控的束缚。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Playground CTA -->
+  <section class="section container" id="playground">
+    <div class="playground reveal">
+      <span class="eyebrow">你的世界在等待</span>
+      <h2>描述你想象中的世界，<br /><span class="grad-text">让 Agent 与你一起构建。</span></h2>
+      <p>你不受"游戏过去是什么"的束缚 —— 而是去定义"它们还能成为什么"。</p>
+      <div class="hero-actions">
+        <a href="#" class="btn btn-primary magnetic">开始创作</a>
+        <a href="#top" class="btn btn-ghost magnetic">回到顶部</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="brand-mark">◆</span>
+        <span class="brand-name">GenPlay</span>
+        <p>AI 原生交互式游戏 Agent 平台</p>
+      </div>
+      <div class="footer-note">
+        <p>为创作者而生，由创作者建造。</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
