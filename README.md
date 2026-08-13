@@ -82,12 +82,12 @@ npm run dev
 
 ## License
 
-Melo is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
+GenPlay is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
 
 
 ## ⭐ Star History
 
-If this vision resonates, please ⭐ star the repo. Your support helps Melo grow.
+If this vision resonates, please ⭐ star the repo. Your support helps GenPlay grow.
 
 <p align="center">
   <a href="https://star-history.com/#Yuan-ManX/GenPlay&Date">
