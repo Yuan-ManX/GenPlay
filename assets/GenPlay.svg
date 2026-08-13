@@ -2,17 +2,11 @@
  width="3622" height="831" viewBox="0 0 3622 831"
  preserveAspectRatio="xMidYMid meet">
 <!--
-    GenPlay Logo — Adaptive Vector Mark (auto-traced from original)
-    Uses fill="currentColor" to inherit surrounding text color.
-    Adapt to light/dark backgrounds via CSS:
-
-      .genplay-logo { color: #010B49; }            /* light background */
-      @media (prefers-color-scheme: dark) {
-        .genplay-logo { color: #ffffff; }          /* dark background */
-      }
+    GenPlay Logo — Light theme (dark ink on light background)
+    For dark backgrounds, use GenPlay-dark.svg
   -->
 <g transform="translate(0.000000,831.000000) scale(0.100000,-0.100000)"
-fill="currentColor" stroke="none">
+fill="#010B49" stroke="none">
 <path d="M5850 7339 c-670 -4 -998 -9 -1050 -17 -649 -102 -1184 -328 -1635
 -691 -140 -113 -383 -350 -482 -471 -163 -200 -294 -402 -407 -630 -179 -360
 -279 -696 -322 -1075 -22 -203 -15 -589 15 -785 49 -321 143 -616 294 -930 48
