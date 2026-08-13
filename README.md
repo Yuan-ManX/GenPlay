@@ -1,6 +1,7 @@
+
 <div align="center">
 
-<img src="assets/GenPlay.png" alt="GenPlay" width="120" />
+<img src="assets/GenPlay.png" alt="GenPlay" />
 
 # GenPlay
 
@@ -8,9 +9,17 @@
 
 > Where imagination becomes playable — craft AI-native games, agent by agent.
 
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Stars](https://img.shields.io/github/stars/Yuan-ManX/GenPlay?style=social)
+
+[Melo](#what-is-melo) · [Innovation](#innovation) · [Features](#features) · [Models](#voice-models) · [Studio](#creation-studio) · [Use Cases](#use-cases) · [Quickstart](#quick-start) · [Philosophy](#philosophy)
+
+#### [English](./README.md) | [中文文档](./README_CN.md)
+
 </div>
 
----
+
 
 ## What is GenPlay?
 
@@ -29,7 +38,7 @@ Whether you are a creator building a new world or a player stepping into one, Ge
 
 More than a tool, GenPlay is a **playground for invention** — a place to rethink what a game is, and how we play it, in the age of AI.
 
----
+
 
 ## Create & Edit: Bringing AI-Native Games to Life
 
@@ -41,7 +50,7 @@ On GenPlay, creation and editing are not separate steps — they are one continu
 - **Worlds That Remember** — AI-native characters and settings carry past moments forward, so your creation keeps growing as a living place, and every edit builds on what came before.
 - **From Prompt to Ecosystem** — the platform itself is a canvas. Begin from a single idea and grow it into a living, interconnected game world — and everything in between.
 
----
+
 
 ## Explore: The Next Shape of AI-Native Games
 
@@ -54,13 +63,13 @@ Beyond making, GenPlay is a launchpad for discovering what play can become in th
 
 On GenPlay, you are not bound by what games were — you define what they can be.
 
----
+
 
 ## Getting Started
 
 ```bash
 # clone the repository
-git clone https://github.com/Yuan-Man/GenPlay.git
+git clone https://github.com/Yuan-ManX/GenPlay.git
 cd GenPlay
 
 # install dependencies
@@ -70,22 +79,18 @@ npm install
 npm run dev
 ```
 
-Once the playground is running, open your browser and begin your first AI-native creation. Describe the world you imagine, and let the agent start building with you.
-
-> Detailed setup for each platform and the agent toolkit are on the way.
-
----
-
-## Contributing
-
-GenPlay is built for creators, by creators. We welcome the ideas, feedback, and contributions that push the boundaries of AI-native play.
-
-There are many ways to join in — share your creations, propose new interaction ideas, report what you discover, or help shape the platform itself. Every voice moves the frontier forward.
-
-Read our [Contributing Guide](CONTRIBUTING.md) to get started.
-
----
 
 ## License
 
-[MIT](LICENSE) © 2026 Yuan-Man
+Melo is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
+
+
+## ⭐ Star History
+
+If this vision resonates, please ⭐ star the repo. Your support helps Melo grow.
+
+<p align="center">
+  <a href="https://star-history.com/#Yuan-ManX/GenPlay&Date">
+    <img src="https://api.star-history.com/svg?repos=Yuan-ManX/GenPlay&type=Date" />
+  </a>
+</p>
