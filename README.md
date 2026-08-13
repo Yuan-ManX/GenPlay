@@ -1,7 +1,10 @@
 
 <div align="center">
 
-<img src="assets/GenPlay.svg" alt="GenPlay" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/GenPlay-dark.svg">
+  <img src="assets/GenPlay.svg" alt="GenPlay" width="420">
+</picture>
 
 # GenPlay
 
