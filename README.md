@@ -1,7 +1,7 @@
 
 <div align="center">
 
-<img src="assets/GenPlay.png" alt="GenPlay" />
+<img src="assets/GenPlay.svg" alt="GenPlay" width="320" />
 
 # GenPlay
 
