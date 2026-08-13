@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 128" role="img" aria-label="GenPlay">
+  <title>GenPlay</title>
+  <defs>
+    <linearGradient id="gp" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="0.5" stop-color="#ec4899"/>
+      <stop offset="1" stop-color="#fbbf24"/>
+    </linearGradient>
+    <style>
+      .logo-name {
+        font-family: "Space Grotesk", "Inter", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+        font-size: 58px;
+        font-weight: 700;
+        letter-spacing: -1.5px;
+        fill: #0a0a0a;
+      }
+      /* Adaptive: dark system -> light text, light system -> dark text */
+      @media (prefers-color-scheme: dark) {
+        .logo-name { fill: #ffffff; }
+      }
+    </style>
+  </defs>
+
+  <!-- Brand badge: layered diamond -->
+  <g transform="translate(64,64)">
+    <rect x="-38" y="-38" width="76" height="76" transform="rotate(45)" rx="13"
+          fill="none" stroke="url(#gp)" stroke-width="6"/>
+    <rect x="-22" y="-22" width="44" height="44" transform="rotate(45)" rx="8" fill="url(#gp)"/>
+    <circle cx="0" cy="0" r="9" fill="#ffffff" opacity="0.92"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text class="logo-name" x="128" y="83">GenPlay</text>
+</svg>
