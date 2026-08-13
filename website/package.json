@@ -1,0 +1,10 @@
+{
+  "name": "genplay-website",
+  "version": "1.0.0",
+  "description": "Official website for GenPlay — AI-Native Interactive Game Agent Platform",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT"
+}
