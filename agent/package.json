@@ -1,0 +1,11 @@
+{
+  "name": "genplay-agent",
+  "version": "1.0.0",
+  "description": "GenPlay Agent Core - AI-native game creation & editing orchestration engine",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT"
+}
