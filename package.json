@@ -1,0 +1,18 @@
+{
+  "name": "genplay",
+  "version": "1.0.0",
+  "description": "GenPlay - AI-Native Interactive Game Agent Platform (Full-stack)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "npm --prefix web install && npm --prefix backend install",
+    "backend": "npm --prefix backend start",
+    "web": "npm --prefix web run dev",
+    "dev": "concurrently -n backend,web -c magenta,cyan \"npm --prefix backend start\" \"npm --prefix web run dev\"",
+    "website": "npm --prefix website start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  },
+  "license": "MIT"
+}
