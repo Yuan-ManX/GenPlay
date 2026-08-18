@@ -2,6 +2,24 @@
  * TaskPlanner - 意图识别与任务拆解
  * 通过规则匹配识别 GenPlay 专属意图并抽取参数。
  */
+
+// 中文别名 -> 标准 genre key
+const GENRE_ALIASES = {
+  射击: 'shooter', 射击游戏: 'shooter', shooter: 'shooter',
+  冒险: 'adventure', 冒险游戏: 'adventure', adventure: 'adventure',
+  角色扮演: 'rpg', 角色扮演游戏: 'rpg', 回合制: 'rpg', rpg: 'rpg',
+  解谜: 'puzzle', 解谜游戏: 'puzzle', 拼图: 'puzzle', puzzle: 'puzzle',
+  对战: 'battle', 对战格斗: 'battle', 格斗: 'battle', 战斗: 'battle', battle: 'battle', 格斗游戏: 'battle',
+  赛车: 'racing', 赛车游戏: 'racing', racing: 'racing',
+  模拟: 'simulation', 模拟经营: 'simulation', simulation: 'simulation',
+  平台: 'platformer', 平台跳跃: 'platformer', 跳跃: 'platformer', 横版: 'platformer', platformer: 'platformer',
+  塔防: 'tower', 防御塔: 'tower', tower: 'tower', towerdefense: 'tower', td: 'tower',
+  贪吃蛇: 'snake', 蛇: 'snake', snake: 'snake',
+  打砖块: 'breakout', 砖块: 'breakout', breakout: 'breakout', 弹球: 'breakout',
+  迷宫: 'maze', 迷宫探索: 'maze', 寻路: 'maze', maze: 'maze',
+  节奏: 'rhythm', 节拍: 'rhythm', 音乐节奏: 'rhythm', rhythm: 'rhythm',
+};
+
 export class TaskPlanner {
   constructor() {
     this.intentRules = [
@@ -28,28 +46,29 @@ export class TaskPlanner {
   extractArgs(intentName, message) {
     const args = {};
     if (intentName === 'create_game') {
-      const GENRES = ['射击', '冒险', 'rpg', '解谜', '赛车', '跑酷', '益智', '休闲', '动作', '恐怖', '模拟', '沙盒', 'puzzle', 'shooter', 'racing', 'platformer', 'adventure', 'horror', 'simulation'];
-      // 类型：取消息中最后一个类型词
-      let genre = '';
-      let genreIdx = -1;
-      for (const g of GENRES) {
-        const idx = message.toLowerCase().lastIndexOf(g.toLowerCase());
-        if (idx > genreIdx) { genreIdx = idx; genre = g; }
-      }
-      if (genreIdx >= 0) args.genre = genre.toLowerCase();
-
-      // 游戏名：位于"叫/名为/游戏"之后，截止到类型词
-      const nameMatch = message.match(/(?:叫|名为|游戏(?:名)?(?:为|叫))["'「]?([\w\u4e00-\u9fa5\s-]{1,30})/i);
+      // 游戏名：位于"叫/名为"之后，截断到首个标点
+      const nameMatch = message.match(/(?:叫|名为|游戏(?:名)?(?:为|叫))["'「]?([\w\u4e00-\u9fa5\s-]{1,30})/);
       let name = nameMatch ? nameMatch[1].trim() : '';
-      if (genreIdx >= 0) {
-        // 去掉类型词及其后缀
-        const cut = message.indexOf(name, 0);
-        const end = genreIdx >= cut ? genreIdx : name.length;
-        name = name.slice(0, Math.max(0, end - cut)).trim();
-        // 去掉尾部的"的"
-        name = name.replace(/[的、]$/, '').trim();
-      }
+      name = name.split(/[，。！？、,.\s]/)[0];
       if (name) args.name = name;
+
+      // 类型：只在"叫/名为"之前的消息片段中扫描，避免误识别名字里的类型词
+      // 同时优先匹配更长的别名（更具体）
+      const cutPos = nameMatch ? nameMatch.index : message.length;
+      const genreScanArea = message.slice(0, cutPos).toLowerCase();
+      let genre = '';
+      let bestLen = -1;
+      for (const alias of Object.keys(GENRE_ALIASES)) {
+        const a = alias.toLowerCase();
+        if (genreScanArea.includes(a) && a.length > bestLen) {
+          bestLen = a.length;
+          genre = alias;
+        }
+      }
+      if (genre) args.genre = GENRE_ALIASES[genre];
+
+      // 把原始描述传给 createGame，供 LLM/本地规则生成专属参数
+      args.description = message;
     }
     if (intentName === 'edit_game' || intentName === 'debug_game' || intentName === 'run_game' ||
         intentName === 'publish_game' || intentName === 'describe_game') {
@@ -57,7 +76,6 @@ export class TaskPlanner {
       if (idMatch) args.gameId = idMatch[1];
     }
     if (intentName === 'edit_game') {
-      // 提取变更内容
       const change = message.replace(/.*?(修改|编辑|改|edit|update|change)/i, '').trim();
       if (change) args.change = change.slice(0, 120);
     }
