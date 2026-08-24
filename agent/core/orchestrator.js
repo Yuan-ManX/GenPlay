@@ -1,67 +1,522 @@
+import { MemoryStore } from './memory.js';
+import { ArtifactMemory } from './artifactMemory.js';
+import { SelfReflector } from './reflector.js';
 import { LLMProvider } from '../providers/llm.js';
 
 /**
- * AgentOrchestrator
- * 编排一次对话/任务的完整链路：
- * 解析意图 -> 上下文记忆 -> 任务拆解 -> 工具调用 -> 生成回复
+ * AgentOrchestrator v2
+ * End-to-end reasoning pipeline for GenPlay Agent:
+ *   Rule fast-path → Compound intent plan → LLM tool-usage reasoning loop
+ *   → Self-reflection critique → Optional rapid-iteration follow-ups
+ *   → Session memory persist + Artifact memory persist + Structured reply
+ *
+ * Editor action signals flow through every tool and are forwarded to the
+ * frontend by the top-level response (editorActions[]).
  */
 export class AgentOrchestrator {
-  constructor({ memory, tools, planner, provider, systemPrompt } = {}) {
-    this.memory = memory;
+  constructor({ memory, artifactMemory, reflector, tools, planner, provider, systemPrompt, maxSteps = 6 } = {}) {
+    this.memory = memory || new MemoryStore();
+    this.artifactMemory = artifactMemory || new ArtifactMemory();
+    this.reflector = reflector || new SelfReflector({ provider });
     this.tools = tools;
     this.planner = planner;
     this.provider = provider || new LLMProvider();
     this.systemPrompt = systemPrompt || this.defaultSystemPrompt();
+    this.maxSteps = maxSteps;
   }
 
   defaultSystemPrompt() {
     return [
-      '你是 GenPlay，一个 AI 原生的游戏创作与编辑 Agent。',
-      '你可以帮助用户：从零创建游戏、编辑游戏逻辑、调试运行、生成配置。',
-      '你具备工具调用能力，会根据需要调用合适的工具完成任务。',
-      '回复要求：专业、简洁、结构清晰，优先使用可执行的工具结果。',
+      'You are GenPlay, an AI-native game creation and editing agent.',
+      'You help users: create games from scratch, edit game logic & parameters, debug & run tests, generate configs, style themes, design NPCs/levels/assets, publish games and iterate rapidly.',
+      'You have tool-calling capability. Analyze the user intent and pick the BEST single tool to call at each step.',
+      'Think step by step. If a task needs multiple steps, do one tool call then synthesize the next action.',
+      'Response requirements: structured, concise, reference tool outputs. When no tool fits, chat naturally.',
+      'IMPORTANT: When editing games, always use the editor_actions to emit control signals so the frontend studio reflects the changes live.',
+      'Use creative_ideate when user wants inspiration. Use rapid_iterate when the user asks to polish/improve/iterate a game in one shot.',
     ].join('\n');
   }
 
+  buildSystemPrompt(augments = {}) {
+    const parts = [this.systemPrompt];
+    if (augments.summary) parts.push(`\n[Session Memory] ${augments.summary}`);
+    if (augments.currentGameId) parts.push(`\n[Current Focus Game] gameId=${augments.currentGameId}`);
+    if (augments.availableGenres) parts.push(`\n[Available Genres] ${augments.availableGenres.join(', ')}`);
+    const cc = this.artifactMemory?.creativityContext?.();
+    if (cc?.favoriteGenres?.length) parts.push(`\n[User Taste] favorite genres: ${cc.favoriteGenres.join(', ')}; total creations: ${cc.totalGames}`);
+    return parts.join('\n');
+  }
+
+  detectFocusGameId(session) {
+    if (!session?.intents?.length) return null;
+    for (let i = session.intents.length - 1; i >= 0; i--) {
+      const it = session.intents[i];
+      if (it?.gameId) return it.gameId;
+    }
+    return null;
+  }
+
   /**
-   * 处理用户消息，返回结构化响应
-   * @param {object} opts { sessionId, message, context }
+   * Main entry: run full pipeline for one user message.
    */
   async handleMessage({ sessionId, message, context = {} }) {
     const history = this.memory.get(sessionId);
-    const intent = this.planner.detectIntent(message, history);
+    const session = this.memory.getSession(sessionId);
+    const focusGameId = this.detectFocusGameId(session);
 
-    // 1. 若检测到明确工具意图，直接执行工具
-    const toolName = intent.tool || intent.name;
-    if (this.tools.has(toolName)) {
-      const toolResult = await this.tools.invoke(toolName, intent.args, context);
-      const reply = this.buildToolReply(toolName, toolResult);
-      this.memory.push(sessionId, { role: 'user', content: message });
-      this.memory.push(sessionId, { role: 'assistant', content: reply, meta: { intent } });
-      return { sessionId, reply, intent, toolResult, done: true };
+    // Fast path intent detection
+    const ruleIntent = this.planner.detectIntent(message, history);
+    const toolName = ruleIntent.tool || ruleIntent.name;
+
+    let toolResults = [];
+    let editorActions = [];
+    let intent = ruleIntent;
+    let lastToolName = null;
+    let lastGameId = ruleIntent.args?.gameId || focusGameId;
+
+    // Build compound plan with create_game re-prioritization logic
+    const planTools = [];
+    let fastPathToolName = this.tools.has(toolName) && this.hasSufficientArgs(toolName, ruleIntent.args) ? toolName : null;
+    if ((/创建|生成|create|build|new|make/i.test(message)) && this.tools.has('create_game')) {
+      const createIntent = this.planner.extractArgs ? this.planner.detectIntent(message, history) : null;
+      if (createIntent?.name !== 'create_game') {
+        const createArgs = (this.planner.extractArgs && this.planner.extractArgs('create_game', message, history)) || {};
+        if ((createArgs.name || createArgs.genre)) {
+          fastPathToolName = 'create_game';
+          intent = { name: 'create_game', args: createArgs, tool: 'create_game' };
+        }
+      }
+    }
+    if (fastPathToolName) {
+      const primaryArgs = (intent?.name === fastPathToolName || intent?.tool === fastPathToolName)
+        ? intent.args
+        : ruleIntent.args;
+      planTools.push({ name: fastPathToolName, args: primaryArgs, source: 'rule' });
+    }
+    if (this.isCompoundIntent(message, fastPathToolName || '')) {
+      const extras = this.planCompoundExtras(message, fastPathToolName, ruleIntent.args, lastGameId);
+      for (const extra of extras) planTools.push(extra);
     }
 
-    // 2. 否则走 LLM 生成（携带会话摘要，支撑多轮上下文）
-    const session = this.memory.getSession(sessionId);
-    const contextHint = session.summary ? `\n[会话记忆] ${session.summary}\n` : '';
-    const reply = await this.provider.chat({
-      systemPrompt: this.systemPrompt + contextHint,
-      history,
+    // Execute primary fast-path tool first
+    let gameSnap = null;
+    if (planTools.length) {
+      const first = planTools.shift();
+      const r = await this.runTool(first.name, first.args, context, sessionId);
+      toolResults.push({ tool: first.name, result: r });
+      if (r.editorActions) editorActions.push(...r.editorActions);
+      if (r.game?.id) { lastGameId = r.game.id; gameSnap = r.game; }
+      lastToolName = first.name;
+      if (r.gameId) {
+        ruleIntent.args.gameId = r.gameId;
+        this.recordIntentGameId(sessionId, ruleIntent, r.gameId);
+      }
+    }
+
+    // Reasoning loop bootstrap
+    const toolSchemas = this.tools.describe();
+    let loopCount = 0;
+    const loopHistory = history.slice();
+    loopHistory.push({ role: 'user', content: message });
+    if (toolResults.length) {
+      const last = toolResults[toolResults.length - 1];
+      loopHistory.push({
+        role: 'assistant',
+        content: `[Tool ${last.tool}] ${last.result.summary || last.result.error || 'done'}`,
+      });
+    }
+
+    // Drain remaining compound extras
+    for (const extra of planTools) {
+      loopCount++;
+      const nextArgs = { ...extra.args };
+      if (!nextArgs.gameId && lastGameId && this.toolNeedsGameId(extra.name)) {
+        nextArgs.gameId = lastGameId;
+      }
+      const r = await this.runTool(extra.name, nextArgs, context, sessionId);
+      toolResults.push({ tool: extra.name, result: r });
+      if (r.editorActions) editorActions.push(...r.editorActions);
+      if (r.game?.id) { lastGameId = r.game.id; gameSnap = r.game; }
+      lastToolName = extra.name;
+      if (r.gameId && intent?.args) {
+        intent.args.gameId = r.gameId;
+        this.recordIntentGameId(sessionId, intent, r.gameId);
+      }
+      loopHistory.push({
+        role: 'assistant',
+        content: `[Tool ${extra.name}] ${r.summary || r.error || 'completed'}`,
+      });
+    }
+
+    // LLM reasoning loop
+    while (loopCount < this.maxSteps) {
+      loopCount++;
+      if (toolResults.length >= 1 && (planTools.length === 0)) {
+        const last = toolResults[toolResults.length - 1];
+        const hasCompoundRemainder = this.isCompoundIntent(message, '') &&
+          !this._allCompoundBucketsCovered(message, toolResults.map((t) => t.tool));
+        if (last.result.ok && !hasCompoundRemainder && (
+            this.isSufficientResult(last.tool, last.result) ||
+            ['tweak_params','apply_style_theme','apply_scenario','view_code','debug_with_diffs','publish_game','describe_game','debug_game','run_game','creative_ideate','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate'].includes(last.tool))) {
+          break;
+        }
+      }
+
+      const sys = this.buildSystemPrompt({
+        summary: session.summary,
+        currentGameId: lastGameId,
+      });
+
+      const pick = await this.provider.pickTool({
+        systemPrompt: sys,
+        history: loopHistory.slice(-12),
+        userMessage: message,
+        toolSchemas,
+      });
+
+      const nextTool = pick.tool;
+      const nextArgs = { ...(pick.args || {}) };
+
+      if (!nextArgs.gameId && lastGameId && this.toolNeedsGameId(nextTool)) {
+        nextArgs.gameId = lastGameId;
+      }
+
+      if (!nextTool || !this.tools.has(nextTool)) break;
+      const alreadyRun = toolResults.some((t) => t.tool === nextTool && t.result.ok);
+      if (alreadyRun) break;
+      if (nextTool === lastToolName && loopCount > 1 && !this.argsProgressed(nextArgs, ruleIntent.args)) break;
+      if (this.isTerminalTool(nextTool, toolResults)) break;
+
+      const r = await this.runTool(nextTool, nextArgs, context, sessionId);
+      toolResults.push({ tool: nextTool, result: r });
+      if (r.editorActions) editorActions.push(...r.editorActions);
+      if (r.game?.id) { lastGameId = r.game.id; gameSnap = r.game; }
+      lastToolName = nextTool;
+      if (r.gameId && intent?.args) {
+        intent.args.gameId = r.gameId;
+        this.recordIntentGameId(sessionId, intent, r.gameId);
+      }
+
+      loopHistory.push({
+        role: 'assistant',
+        content: `[Tool ${nextTool}] ${r.summary || r.error || 'completed'}`,
+      });
+
+      if (r.ok && this.isSufficientResult(nextTool, r)) break;
+    }
+
+    // ---- Step 3: Self-reflection critique (optional rapid-iteration follow-up) ----
+    let critique = null;
+    const shouldReflect = lastGameId && (
+      toolResults.some((t) => ['create_game', 'edit_game', 'tweak_params', 'apply_style_theme', 'apply_scenario'].includes(t.tool) && t.result.ok)
+    );
+    if (shouldReflect && this.reflector) {
+      try {
+        critique = await this.reflector.critique({ userMessage: message, intent, toolResults, game: gameSnap });
+        // Auto-trigger rapid_iterate if:
+        //   - critique score is low OR user explicitly said "improve/polish/make it better"
+        //   - we haven't already run it
+        const userAskedPolish = /(做得更好|优化|润色|polish|improve|make it better|更好)/i.test(message);
+        const autoRapid = (critique.score < 0.7 || userAskedPolish) &&
+          !toolResults.some((t) => t.tool === 'rapid_iterate') &&
+          this.tools.has('rapid_iterate') && this.hasSufficientArgs('rapid_iterate', { gameId: lastGameId });
+        if (autoRapid) {
+          const r = await this.runTool('rapid_iterate', { gameId: lastGameId, feedback: message, focus: 'all' }, context, sessionId);
+          toolResults.push({ tool: 'rapid_iterate', result: r });
+          if (r.editorActions) editorActions.push(...r.editorActions);
+          if (r.diffs?.length) critique = { ...critique, rapidIterationApplied: r.diffs };
+        }
+      } catch (_) { /* skip critique if fails */ }
+    }
+
+    // ---- Step 4: Artifact memory persistence ----
+    if (gameSnap) {
+      this.artifactMemory.recordGame(gameSnap, [gameSnap.genre]);
+      if (gameSnap.theme) this.artifactMemory.recordTheme(gameSnap.theme, gameSnap.id);
+      if (gameSnap.scenario) this.artifactMemory.recordScenario(gameSnap.scenario, gameSnap.id);
+    }
+
+    // ---- Step 5: Synthesize reply ----
+    const reply = this.synthesizeReply({
       userMessage: message,
-      tools: this.tools.describe(),
+      intent,
+      toolResults,
+      critique,
+      fallbackHistory: loopHistory.slice(-8),
+      sessionSummary: session.summary,
     });
 
-    this.memory.push(sessionId, { role: 'user', content: message });
-    this.memory.push(sessionId, { role: 'assistant', content: reply, meta: { intent } });
+    const toolTrace = toolResults.map((t) => ({ tool: t.tool, ok: t.result.ok }));
+    const meta = { intent, toolTrace, editorActions };
+    if (lastGameId) meta.currentGameId = lastGameId;
+    if (critique) meta.critique = { score: critique.score, issues: critique.issues.length };
 
-    return { sessionId, reply, intent, done: true };
+    this.memory.push(sessionId, { role: 'user', content: message });
+    this.memory.push(sessionId, { role: 'assistant', content: reply, meta });
+
+    const topLevel = {
+      sessionId, reply, intent, toolTrace, toolResults, editorActions,
+      currentGameId: lastGameId, critique, done: true,
+    };
+    for (const t of toolResults) {
+      const r = t.result;
+      if (r.game !== undefined) topLevel.game = r.game;
+      if (r.sections) { topLevel.sections = r.sections; topLevel.code = r.sections; }
+      else if (r.code !== undefined && !topLevel.sections) { topLevel.code = r.sections || {}; }
+      if (r.shareLink) topLevel.shareLink = r.shareLink;
+      if (r.shareCode) topLevel.shareCode = r.shareCode;
+      if (r.debugReport) topLevel.debugReport = r.debugReport;
+      if (r.diagnostics) topLevel.diagnostics = r.diagnostics;
+      if (r.fixes) topLevel.fixes = r.fixes;
+      if (r.diffs) topLevel.diffs = r.diffs;
+      if (r.description) topLevel.description = r.description;
+      if (r.concepts) topLevel.concepts = r.concepts;
+      if (r.level) topLevel.level = r.level;
+      if (r.assets) topLevel.assets = r.assets;
+      if (r.npcs) topLevel.npcs = r.npcs;
+      if (r.meta) topLevel.gameMeta = r.meta;
+    }
+    if (topLevel.game?.id && !topLevel.currentGameId) topLevel.currentGameId = topLevel.game.id;
+    return topLevel;
   }
 
-  buildToolReply(tool, result) {
-    if (result.ok) {
-      return `已完成「${tool}」操作。${result.summary || ''}`;
+  async runTool(toolName, args, context, sessionId) {
+    try {
+      const raw = await this.tools.invoke(toolName, args, { ...context, sessionId });
+      if (!raw || typeof raw !== 'object') {
+        return { ok: false, error: 'Tool returned invalid shape', summary: `Failed ${toolName}` };
+      }
+      if (raw.ok === undefined) raw.ok = true;
+      if (!raw.summary) raw.summary = raw.ok ? `Executed ${toolName}` : `${toolName} failed`;
+      return raw;
+    } catch (err) {
+      return { ok: false, error: err.message || String(err), summary: `${toolName} error` };
     }
-    return `「${tool}」操作遇到问题：${result.error || '未知错误'}`;
+  }
+
+  hasSufficientArgs(toolName, args = {}) {
+    if (toolName === 'create_game') return !!args.name || !!args.genre;
+    if (toolName === 'edit_game') return !!args.gameId;
+    if (['debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate'].includes(toolName)) return !!args.gameId;
+    if (['list_games','generate_config','help','creative_ideate'].includes(toolName)) return true;
+    return !!args;
+  }
+
+  toolNeedsGameId(toolName) {
+    return ['edit_game','debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate'].includes(toolName);
+  }
+
+  argsProgressed(next, prev) {
+    if (!next || !prev) return true;
+    return Object.keys(next).some((k) => next[k] && next[k] !== prev[k]);
+  }
+
+  isTerminalTool(toolName, results) {
+    if (toolName === 'publish_game') return true;
+    if (toolName === 'rapid_iterate') return true;
+    if (toolName === 'describe_game' && results.length >= 2) return true;
+    return false;
+  }
+
+  isSufficientResult(toolName, r) {
+    if (!r.ok) return true;
+    if (['create_game','publish_game','run_game','debug_game','creative_ideate','rapid_iterate','generate_npc','generate_asset','procedural_level','configure_game_meta'].includes(toolName)) return true;
+    return false;
+  }
+
+  isCompoundIntent(message, currentFastPathTool) {
+    const msg = String(message || '');
+    const buckets = this._intentBuckets();
+    const matchedOthers = buckets
+      .filter((b) => b.tool !== currentFastPathTool && b.re.test(msg))
+      .map((b) => b.tool);
+    return matchedOthers.length > 0;
+  }
+
+  _allCompoundBucketsCovered(message, executedTools) {
+    const msg = String(message || '');
+    const executed = new Set(executedTools || []);
+    const matched = this._intentBuckets().filter((b) => b.re.test(msg)).map((b) => b.tool);
+    return matched.every((tool) => executed.has(tool));
+  }
+
+  _intentBuckets() {
+    return [
+      { tool: 'apply_style_theme', re: /(主题|风格|theme|style|配色|赛博|像素|复古|樱花|街机|日落|深海|森林|绿林)/i, argExtractor: (m) => ({ theme: this._detectThemeInline(m) }) },
+      { tool: 'apply_scenario',     re: /(场景|剧情|story|scenario|关卡|叙事|故事|章节)/i, argExtractor: (m) => ({ scenarioType: this._detectScenarioInline(m) }) },
+      { tool: 'tweak_params',       re: /(调参|参数|tweak|速度|血量|难度|伤害|强度|预设)/i, argExtractor: (m) => this._extractTweakInline(m) },
+      { tool: 'debug_with_diffs',   re: /(diff|差异|对比|前后|变更|深度调试|自动修复|修复.*问题)/i },
+      { tool: 'view_code',          re: /(查看代码|查看脚本|^代码$|^脚本$|code|script|source|源码)/i },
+      { tool: 'publish_game',       re: /(发布|上线|publish|deploy|分享)/i },
+      { tool: 'debug_game',         re: /(排错|排障|排查|检查问题|找出问题|debug|troubleshoot)/i },
+      { tool: 'run_game',           re: /(运行|测试|跑|试玩|run|test|play)/i },
+      { tool: 'describe_game',      re: /(概览|介绍|详情|describe|details?|情况)/i },
+      { tool: 'creative_ideate',    re: /(创意|灵感|概念|给点主意|inspire|ideas?|脑暴|脑洞|mashup|混搭|想法)/i },
+      { tool: 'rapid_iterate',      re: /(快速迭代|一键优化|做得更好|润色|打磨|polish|improve|iterate|再优化|升级.*游戏)/i },
+      { tool: 'generate_asset',     re: /(生成.*资源|素材|sprite|背景|音乐|音效|ui|asset|图标|贴图)/i },
+      { tool: 'generate_npc',       re: /(npc|角色|人物|村民|商人|对话.*角色|生成.*(npc|角色))/i },
+      { tool: 'procedural_level',   re: /(生成.*关卡|地图|地牢|迷宫|路径|关卡.*生成|level|map|dungeon|地形)/i },
+      { tool: 'configure_game_meta',re: /(多人|联机|合作|协作|成就|排行榜|存档|无障碍|变现|广告|内购|multiplayer|achievement|leaderboard|accessibility)/i },
+    ];
+  }
+
+  planCompoundExtras(message, currentTool, baseArgs, lastGameId) {
+    const msg = String(message || '');
+    const buckets = this._intentBuckets();
+    const out = [];
+    const seen = new Set(currentTool ? [currentTool] : []);
+    for (const b of buckets) {
+      if (seen.has(b.tool)) continue;
+      if (!b.re.test(msg)) continue;
+      const args = b.argExtractor ? (b.argExtractor(msg) || {}) : {};
+      if (baseArgs?.gameId && !args.gameId) args.gameId = baseArgs.gameId;
+      out.push({ name: b.tool, args, source: 'compound' });
+      seen.add(b.tool);
+    }
+    return out;
+  }
+
+  _detectThemeInline(msg) {
+    if (/赛博|cyberpunk|neon/i.test(msg)) return 'cyberpunk';
+    if (/像素|复古|retro|pixel|8.?bit/i.test(msg)) return 'retro_pixel';
+    if (/樱花|sakura|粉/i.test(msg)) return 'sakura';
+    if (/街机|arcade/i.test(msg)) return 'arcade';
+    if (/日落|sunset|橙红/i.test(msg)) return 'sunset';
+    if (/深海|海洋|ocean|蓝/i.test(msg)) return 'ocean';
+    if (/森林|forest|绿|自然|绿林/i.test(msg)) return 'forest';
+    return undefined;
+  }
+
+  _detectScenarioInline(msg) {
+    if (/太空|星|宇宙|方舟|space/i.test(msg)) return 'space';
+    if (/魔幻|魔|剑|勇者|fantasy|奇幻/i.test(msg)) return 'fantasy';
+    if (/赛博|黑客|霓虹|都市|未来|cyber/i.test(msg)) return 'cyber';
+    return undefined;
+  }
+
+  _extractTweakInline(message) {
+    const args = {};
+    const msg = String(message || '');
+    const near = `.{0,4}?`;
+    const speedMatch = msg.match(new RegExp(`(?:玩家)?(?:速度)${near}(\\d+(?:\\.\\d+)?)`));
+    if (speedMatch && !/(伤害|damage|atk|攻击力|血量|hp|生命|敌人)/i.test(speedMatch[0].replace(speedMatch[1],''))) args.speed = Number(speedMatch[1]);
+    const hpMatch = msg.match(new RegExp(`(?:玩家)?(?:血量|生命|hp)${near}(\\d+(?:\\.\\d+)?)`, 'i'));
+    if (hpMatch && !/(速度|speed|伤害|damage|atk|攻击力|敌人)/i.test(hpMatch[0].replace(hpMatch[1],''))) args.hp = Number(hpMatch[1]);
+    const diffMatch = msg.match(/难度.{0,6}?(简单|普通|困难|地狱|easy|normal|hard|hell)/i);
+    if (diffMatch) args.difficulty = diffMatch[1];
+    const dmgMatch = msg.match(new RegExp(`(?:伤害|攻击力|atk|damage)${near}(\\d+(?:\\.\\d+)?)`, 'i'));
+    if (dmgMatch && !/(速度|speed|血量|hp|生命|敌人)/i.test(dmgMatch[0].replace(dmgMatch[1],''))) args.damage = Number(dmgMatch[1]);
+    const enemyHpMatch = msg.match(/敌人(?:血量|生命|hp).{0,8}?(\d+(?:\.\d+)?|加倍|翻倍|乘[2-9]|[2-9]倍)/i);
+    if (enemyHpMatch) {
+      const v = enemyHpMatch[1];
+      if (/加倍|翻倍|乘2|2倍/.test(v)) args.enemyHp = 2;
+      else if (/乘([2-9])|([2-9])倍/.test(v)) { const m = v.match(/乘([2-9])|([2-9])倍/); args.enemyHp = Number(m[1] || m[2]); }
+      else args.enemyHp = Number(v);
+    }
+    const enemySpdMatch = msg.match(/敌人(?:速度|移速|speed).{0,8}?(\d+(?:\.\d+)?|加倍|翻倍|乘[2-9]|[2-9]倍|加快|减慢)/i);
+    if (enemySpdMatch) {
+      const v = enemySpdMatch[1];
+      if (/加倍|翻倍|乘2|2倍/.test(v)) args.enemySpeed = 2;
+      else if (/乘([2-9])|([2-9])倍/.test(v)) { const m = v.match(/乘([2-9])|([2-9])倍/); args.enemySpeed = Number(m[1] || m[2]); }
+      else if (/加快/.test(v)) args.enemySpeed = 1.3;
+      else if (/减慢/.test(v)) args.enemySpeed = 0.7;
+      else args.enemySpeed = Number(v);
+    }
+    return args;
+  }
+
+  recordIntentGameId(sessionId, intent, gameId) {
+    const s = this.memory.sessions?.get(sessionId);
+    if (!s || !s.intents?.length) return;
+    const last = s.intents[s.intents.length - 1];
+    last.gameId = gameId;
+  }
+
+  synthesizeReply({ userMessage, intent, toolResults, critique, fallbackHistory, sessionSummary }) {
+    if (toolResults.length === 0) {
+      const sys = this.buildSystemPrompt({ summary: sessionSummary });
+      return this.provider.chatSync
+        ? this.provider.chatSync({ systemPrompt: sys, history: fallbackHistory, userMessage })
+        : this.buildRuleReply(userMessage, intent);
+    }
+
+    const seen = new Set();
+    const lines = [];
+    const last = toolResults[toolResults.length - 1];
+
+    for (const t of toolResults) {
+      if (t.result.ok) {
+        const line = t.result.summary;
+        if (line && !seen.has(line)) { seen.add(line); lines.push(line); }
+      } else {
+        lines.push(`⚠️ ${t.tool}: ${t.result.error || 'Unknown error'}`);
+      }
+    }
+
+    if (critique && critique.issues?.length) {
+      lines.push(`\n🔍 自检评估（${critique.score.toFixed(2)}/1.00）：${critique.summary}`);
+      const topIssues = critique.issues.filter((i) => i.severity !== 'low').slice(0, 2);
+      for (const iss of topIssues) {
+        lines.push(`   · [${iss.severity}] ${iss.suggestion}`);
+      }
+      if (critique.rapidIterationApplied?.length) {
+        lines.push(`   ✨ 已自动应用 ${critique.rapidIterationApplied.length} 项优化`);
+      }
+    }
+
+    if (last.tool === 'create_game' && last.result.ok) {
+      const gid = last.result.game?.id || '当前游戏';
+      lines.push('', '接下来你可以告诉我：');
+      lines.push('  · 修改玩法："把难度调高" / "加个Boss关卡"');
+      lines.push('  · 应用风格："用像素风" / "赛博朋克配色"');
+      lines.push(`  · 一键打磨："优化 game#${gid}" 或 "快速迭代"`);
+      lines.push(`  · 调试发布："运行 game#${gid}" / "发布上线"`);
+    }
+    if (last.tool === 'edit_game' && last.result.ok) {
+      lines.push('', '要查看修改效果，告诉我"运行游戏"或直接点击试玩预览。');
+    }
+    if (last.tool === 'debug_game' && last.result.ok && last.result.diagnostics?.length) {
+      lines.push('', '如需我帮你自动修复，告诉我"修复上述问题"即可。');
+    }
+    if (last.tool === 'creative_ideate') {
+      lines.push('', '选择一个概念，直接告诉我"用第 2 个来创建"，我会立刻开始搭建。');
+    }
+
+    return lines.join('\n');
+  }
+
+  buildRuleReply(message, intent) {
+    if (intent?.name === 'help' || /(帮助|help|你能做什么|功能|怎么用)/i.test(message)) {
+      return [
+        '我是 GenPlay AI 游戏创作助手，可以帮你完成以下工作：',
+        '  💡 创意灵感："给我 3 个原创游戏概念"',
+        '  🎮 创建游戏："创建一个叫星空冒险的射击游戏"',
+        '  ✏️  编辑游戏："修改 game#xxx 把玩家速度调高"',
+        '  🧱 生成关卡/NPC/资源："给 game#xxx 生成地城关卡" / "做 3 个角色"',
+        '  🎨 主题风格："对 game#xxx 应用赛博朋克风格"',
+        '  📝 场景剧情："给 game#xxx 加一个太空站关卡剧情"',
+        '  🔧 一键打磨："优化 game#xxx" 快速迭代润色',
+        '  🐛 调试运行："运行 game#xxx" / "排查 game#xxx 的问题"',
+        '  🚀 发布上线："发布 game#xxx"',
+        '',
+        '所有编辑器操作都可以在左侧对话中用自然语言控制，无需手动操作界面。',
+      ].join('\n');
+    }
+    if (/你好|hi|hello/i.test(message)) {
+      return '你好！我是 GenPlay AI 助手。想找灵感可以说"给我几个点子"，想直接创作就告诉我你要什么游戏，我会从零帮你创建、编辑、调试并发布上线 🎮';
+    }
+    if (/谢谢|thanks|thx/i.test(message)) {
+      return '不客气！随时可以告诉我下一步想调整什么，我们一起把游戏做好 ✨';
+    }
+    return [
+      '我已收到你的消息。如果需要我执行具体操作，可以用更明确的指令，例如：',
+      '  · "给我 3 个游戏创意"',
+      '  · "创建一个叫跳跃冒险的平台跳跃游戏"',
+      '  · "给 game#xxx 修改玩家速度为 5.5"',
+      '  · "对 game#xxx 应用像素复古风格"',
+      '  · "一键优化 game#xxx"',
+      '  · "列出所有游戏"',
+    ].join('\n');
   }
 
   reset(sessionId) {
