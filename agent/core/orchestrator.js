@@ -2,6 +2,9 @@ import { MemoryStore } from './memory.js';
 import { ArtifactMemory } from './artifactMemory.js';
 import { SelfReflector } from './reflector.js';
 import { LLMProvider } from '../providers/llm.js';
+import { listGenres } from '../templates/gameTemplates.js';
+
+const ALL_GENRES = listGenres().map((g) => g.key);
 
 /**
  * AgentOrchestrator v2
@@ -42,6 +45,10 @@ export class AgentOrchestrator {
     if (augments.summary) parts.push(`\n[Session Memory] ${augments.summary}`);
     if (augments.currentGameId) parts.push(`\n[Current Focus Game] gameId=${augments.currentGameId}`);
     if (augments.availableGenres) parts.push(`\n[Available Genres] ${augments.availableGenres.join(', ')}`);
+    // Inject cross-session preference profile so the agent personalizes
+    // suggestions, tone, and difficulty defaults without extra prompting.
+    const prefSummary = this.artifactMemory?.preferenceSummary?.();
+    if (prefSummary) parts.push(`\n[User Profile] ${prefSummary}`);
     const cc = this.artifactMemory?.creativityContext?.();
     if (cc?.favoriteGenres?.length) parts.push(`\n[User Taste] favorite genres: ${cc.favoriteGenres.join(', ')}; total creations: ${cc.totalGames}`);
     return parts.join('\n');
@@ -58,8 +65,17 @@ export class AgentOrchestrator {
 
   /**
    * Main entry: run full pipeline for one user message.
+   * Optional `onEvent` callback receives streaming lifecycle events:
+   *   { type:'plan', tools }            - compound plan built
+   *   { type:'tool_start', tool, args } - a tool is about to run
+   *   { type:'tool_end', tool, ok, summary } - tool finished
+   *   { type:'reply', reply }           - final synthesized reply
+   *   { type:'done', result }            - full pipeline result
+   * This lets the SSE endpoint stream the agent's reasoning to the frontend
+   * without refactoring the loop into an async generator.
    */
-  async handleMessage({ sessionId, message, context = {} }) {
+  async handleMessage({ sessionId, message, context = {}, onEvent }) {
+    const emit = typeof onEvent === 'function' ? onEvent : null;
     const history = this.memory.get(sessionId);
     const session = this.memory.getSession(sessionId);
     const focusGameId = this.detectFocusGameId(session);
@@ -98,15 +114,23 @@ export class AgentOrchestrator {
       for (const extra of extras) planTools.push(extra);
     }
 
+    if (emit && planTools.length) {
+      emit({ type: 'plan', tools: planTools.map((p) => p.name) });
+    }
+
     // Execute primary fast-path tool first
     let gameSnap = null;
     if (planTools.length) {
       const first = planTools.shift();
+      if (emit) emit({ type: 'tool_start', tool: first.name, args: first.args });
       const r = await this.runTool(first.name, first.args, context, sessionId);
       toolResults.push({ tool: first.name, result: r });
+      if (emit) emit({ type: 'tool_end', tool: first.name, ok: r.ok, summary: r.summary });
       if (r.editorActions) editorActions.push(...r.editorActions);
       if (r.game?.id) { lastGameId = r.game.id; gameSnap = r.game; }
       lastToolName = first.name;
+      // Track fast-path tool usage for cross-session preference profiling
+      this.artifactMemory?.recordToolUsage?.(first.name, first.args);
       if (r.gameId) {
         ruleIntent.args.gameId = r.gameId;
         this.recordIntentGameId(sessionId, ruleIntent, r.gameId);
@@ -126,18 +150,30 @@ export class AgentOrchestrator {
       });
     }
 
-    // Drain remaining compound extras
+    // Drain remaining compound extras.
+    // When the fast-path tool created/remixed a brand-new game, retarget
+    // follow-up extras (theme/scenario/tweak/...) to the NEW game so the
+    // user's compound intent ("复刻并改难度地狱") lands on the fresh copy
+    // rather than mutating the original source.
+    const newGameId = gameSnap?.id || null;
     for (const extra of planTools) {
       loopCount++;
       const nextArgs = { ...extra.args };
+      if (newGameId && this.toolNeedsGameId(extra.name) && nextArgs.gameId === ruleIntent.args?.gameId) {
+        nextArgs.gameId = newGameId;
+      }
       if (!nextArgs.gameId && lastGameId && this.toolNeedsGameId(extra.name)) {
         nextArgs.gameId = lastGameId;
       }
+      if (emit) emit({ type: 'tool_start', tool: extra.name, args: nextArgs });
       const r = await this.runTool(extra.name, nextArgs, context, sessionId);
       toolResults.push({ tool: extra.name, result: r });
+      if (emit) emit({ type: 'tool_end', tool: extra.name, ok: r.ok, summary: r.summary });
       if (r.editorActions) editorActions.push(...r.editorActions);
       if (r.game?.id) { lastGameId = r.game.id; gameSnap = r.game; }
       lastToolName = extra.name;
+      // Track compound-extra tool usage for cross-session preference profiling
+      this.artifactMemory?.recordToolUsage?.(extra.name, nextArgs);
       if (r.gameId && intent?.args) {
         intent.args.gameId = r.gameId;
         this.recordIntentGameId(sessionId, intent, r.gameId);
@@ -149,6 +185,7 @@ export class AgentOrchestrator {
     }
 
     // LLM reasoning loop
+    let consecutiveFailures = 0;
     while (loopCount < this.maxSteps) {
       loopCount++;
       if (toolResults.length >= 1 && (planTools.length === 0)) {
@@ -162,9 +199,13 @@ export class AgentOrchestrator {
         }
       }
 
+      // Break early if too many consecutive failures to avoid wasting steps.
+      if (consecutiveFailures >= 2) break;
+
       const sys = this.buildSystemPrompt({
         summary: session.summary,
         currentGameId: lastGameId,
+        availableGenres: ALL_GENRES,
       });
 
       const pick = await this.provider.pickTool({
@@ -187,11 +228,30 @@ export class AgentOrchestrator {
       if (nextTool === lastToolName && loopCount > 1 && !this.argsProgressed(nextArgs, ruleIntent.args)) break;
       if (this.isTerminalTool(nextTool, toolResults)) break;
 
+      if (emit) emit({ type: 'tool_start', tool: nextTool, args: nextArgs });
       const r = await this.runTool(nextTool, nextArgs, context, sessionId);
       toolResults.push({ tool: nextTool, result: r });
+      if (emit) emit({ type: 'tool_end', tool: nextTool, ok: r.ok, summary: r.summary });
       if (r.editorActions) editorActions.push(...r.editorActions);
       if (r.game?.id) { lastGameId = r.game.id; gameSnap = r.game; }
       lastToolName = nextTool;
+      // Track tool usage for cross-session preference profiling
+      this.artifactMemory?.recordToolUsage?.(nextTool, nextArgs);
+
+      // Error recovery: when a tool fails, inject the error context into
+      // loop history so the LLM can revise its approach on the next step.
+      // This lets the agent self-heal by picking a different tool or fixing
+      // arguments rather than silently aborting on the first failure.
+      if (!r.ok) {
+        consecutiveFailures++;
+        loopHistory.push({
+          role: 'system',
+          content: `[Recovery] Tool ${nextTool} failed: ${r.error || 'unknown'}. Consider a different tool or corrected arguments.`,
+        });
+      } else {
+        consecutiveFailures = 0;
+      }
+
       if (r.gameId && intent?.args) {
         intent.args.gameId = r.gameId;
         this.recordIntentGameId(sessionId, intent, r.gameId);
@@ -237,14 +297,45 @@ export class AgentOrchestrator {
     }
 
     // ---- Step 5: Synthesize reply ----
-    const reply = this.synthesizeReply({
-      userMessage: message,
-      intent,
-      toolResults,
-      critique,
-      fallbackHistory: loopHistory.slice(-8),
-      sessionSummary: session.summary,
-    });
+    // When an LLM is configured, stream the synthesized reply token-by-token
+    // so the frontend renders progressively. Otherwise fall back to the
+    // synchronous rule-based synthesizer.
+    let reply = '';
+    if (this.provider?.enabled && emit) {
+      const promptCtx = {
+        userMessage: message,
+        intent,
+        toolResults,
+        critique,
+        fallbackHistory: loopHistory.slice(-8),
+        sessionSummary: session.summary,
+      };
+      const sys = this._buildReplySystemPrompt(promptCtx);
+      const toolDigest = this._toolDigest(toolResults, critique);
+      try {
+        reply = await this.provider.chatStream({
+          systemPrompt: sys,
+          history: loopHistory.slice(-8),
+          userMessage: `${message}\n\n[Tool Outputs]\n${toolDigest}`,
+          temperature: 0.6,
+          onToken: (chunk) => emit({ type: 'reply_token', chunk }),
+        });
+        // Ensure non-empty reply; fall through to synthesizer if LLM returned nothing.
+        if (!reply || !reply.trim()) reply = this.synthesizeReply(promptCtx);
+      } catch (_) {
+        reply = this.synthesizeReply(promptCtx);
+      }
+    } else {
+      reply = this.synthesizeReply({
+        userMessage: message,
+        intent,
+        toolResults,
+        critique,
+        fallbackHistory: loopHistory.slice(-8),
+        sessionSummary: session.summary,
+      });
+    }
+    if (emit) emit({ type: 'reply', reply });
 
     const toolTrace = toolResults.map((t) => ({ tool: t.tool, ok: t.result.ok }));
     const meta = { intent, toolTrace, editorActions };
@@ -275,8 +366,15 @@ export class AgentOrchestrator {
       if (r.assets) topLevel.assets = r.assets;
       if (r.npcs) topLevel.npcs = r.npcs;
       if (r.meta) topLevel.gameMeta = r.meta;
+      // Crew blueprint + specialist breakdown for the frontend crew panel.
+      if (r.blueprint) topLevel.blueprint = r.blueprint;
+      if (r.specialists) topLevel.specialists = r.specialists;
+      if (r.applied) topLevel.crewApplied = r.applied;
+      if (r.remixOf) topLevel.remixOf = r.remixOf;
+      if (r.sourceTitle) topLevel.remixSourceTitle = r.sourceTitle;
     }
     if (topLevel.game?.id && !topLevel.currentGameId) topLevel.currentGameId = topLevel.game.id;
+    if (emit) emit({ type: 'done', result: topLevel });
     return topLevel;
   }
 
@@ -296,6 +394,8 @@ export class AgentOrchestrator {
 
   hasSufficientArgs(toolName, args = {}) {
     if (toolName === 'create_game') return !!args.name || !!args.genre;
+    if (toolName === 'remix_game') return !!(args.shareCode || args.sourceGameId || args.gameId);
+    if (toolName === 'dispatch_crew') return !!args.brief || !!args.genre || true;
     if (toolName === 'edit_game') return !!args.gameId;
     if (['debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate'].includes(toolName)) return !!args.gameId;
     if (['list_games','generate_config','help','creative_ideate'].includes(toolName)) return true;
@@ -320,7 +420,7 @@ export class AgentOrchestrator {
 
   isSufficientResult(toolName, r) {
     if (!r.ok) return true;
-    if (['create_game','publish_game','run_game','debug_game','creative_ideate','rapid_iterate','generate_npc','generate_asset','procedural_level','configure_game_meta'].includes(toolName)) return true;
+    if (['create_game','publish_game','run_game','debug_game','creative_ideate','rapid_iterate','generate_npc','generate_asset','procedural_level','configure_game_meta','remix_game','dispatch_crew'].includes(toolName)) return true;
     return false;
   }
 
@@ -357,7 +457,27 @@ export class AgentOrchestrator {
       { tool: 'generate_npc',       re: /(npc|角色|人物|村民|商人|对话.*角色|生成.*(npc|角色))/i },
       { tool: 'procedural_level',   re: /(生成.*关卡|地图|地牢|迷宫|路径|关卡.*生成|level|map|dungeon|地形)/i },
       { tool: 'configure_game_meta',re: /(多人|联机|合作|协作|成就|排行榜|存档|无障碍|变现|广告|内购|multiplayer|achievement|leaderboard|accessibility)/i },
+      { tool: 'install_snippet',    re: /(安装|引入|导入.*片段|snippet|二段跳|双段跳|冲刺|突进|dash|收集品|金币|boss|首领|检查点|对话树|成就触发|无敌闪烁|连击|限时|倒计时)/i, argExtractor: (m) => this._detectSnippetKey(m) },
+      { tool: 'edit_node_graph',    re: /(节点图|逻辑图|可视化.*节点|node.*graph|连线|导入.*DSL|导出.*DSL)/i },
+      { tool: 'search_asset_library', re: /(资产库|素材库|共享库|搜索.*(素材|资产|主题|预设|片段)|asset.*library|查找.*(主题|片段|脚本))/i },
+      { tool: 'explore_community',  re: /(社区|探索|浏览|热门|新作|精选|community|explore|排行榜|大家的)/i },
+      { tool: 'remix_game',         re: /(复刻|remix|fork.*game|二创|改编|基于.*做|参照.*创作|clone.*game)/i },
+      { tool: 'dispatch_crew',      re: /(创作团|专家团|多智能体|协同构思|团队.*设计|crew|specialist|一起.*构思|企划)/i },
     ];
+  }
+
+  _detectSnippetKey(msg) {
+    if (/二段跳|双段跳|double[ _-]?jump/i.test(msg)) return { snippetKey: 'double_jump' };
+    if (/冲刺|突进|dash[ _-]?attack/i.test(msg)) return { snippetKey: 'dash_attack' };
+    if (/金币|收集品|coin|拾取|collectible/i.test(msg)) return { snippetKey: 'collectible_coin' };
+    if (/boss|首领|boss[ _-]?wave/i.test(msg)) return { snippetKey: 'boss_wave' };
+    if (/检查点|复活点|存档点|checkpoint/i.test(msg)) return { snippetKey: 'checkpoint' };
+    if (/对话树|分支对话|剧情分支|dialogue[ _-]?tree/i.test(msg)) return { snippetKey: 'dialogue_tree' };
+    if (/成就|achievement|解锁条件/i.test(msg)) return { snippetKey: 'achievement_trigger' };
+    if (/无敌闪烁|短暂无敌|invincible[ _-]?blink/i.test(msg)) return { snippetKey: 'invincible_blink' };
+    if (/连击|combo|score[ _-]?combo/i.test(msg)) return { snippetKey: 'score_combo' };
+    if (/限时|时间限制|倒计时|time[ _-]?limit/i.test(msg)) return { snippetKey: 'time_limit' };
+    return {};
   }
 
   planCompoundExtras(message, currentTool, baseArgs, lastGameId) {
@@ -432,9 +552,70 @@ export class AgentOrchestrator {
     last.gameId = gameId;
   }
 
+  /**
+   * System prompt for the LLM-powered streaming reply synthesizer.
+   * Instructs the model to weave tool outputs into a concise, natural
+   * Chinese reply that references what was accomplished and suggests
+   * concrete next steps.
+   */
+  _buildReplySystemPrompt({ intent, critique, sessionSummary }) {
+    const parts = [
+      this.systemPrompt,
+      'You are now writing the final user-facing reply for this turn.',
+      'Rules:',
+      '- Reply in concise, natural Chinese (简体中文) unless the user spoke English.',
+      '- Summarize what was accomplished by referencing the tool outputs below.',
+      '- Do NOT fabricate results. If a tool failed, acknowledge it briefly.',
+      '- End with 1-3 concrete next-step suggestions the user can pick.',
+      '- Keep the reply under 200 Chinese characters unless the user asked for detail.',
+    ];
+    if (intent?.name) parts.push(`Detected intent: ${intent.name}`);
+    if (sessionSummary) parts.push(`[Session Memory] ${sessionSummary}`);
+    if (critique?.score != null) {
+      parts.push(`[Self-Check] score=${critique.score.toFixed(2)}; ${critique.summary || ''}`);
+      if (critique.issues?.length) {
+        parts.push('Issues to mention: ' + critique.issues.slice(0, 3).map((i) => i.suggestion).join('; '));
+      }
+    }
+    return parts.join('\n');
+  }
+
+  /**
+   * Build a compact text digest of tool results for the LLM reply prompt.
+   * Each tool contributes its name, status, and summary. Crew blueprints
+   * and critiques are included so the model can describe them.
+   */
+  _toolDigest(toolResults, critique) {
+    const lines = [];
+    for (const t of toolResults) {
+      const r = t.result;
+      const status = r.ok ? 'OK' : 'FAIL';
+      const summ = r.summary || r.error || '';
+      lines.push(`- ${t.tool} [${status}]: ${summ}`);
+      if (t.tool === 'dispatch_crew' && r.blueprint) {
+        const bp = r.blueprint;
+        lines.push(`  Blueprint: "${bp.title}" (${bp.genre || '?'})`);
+        if (bp.narrative?.scenarioKey) lines.push(`  Narrative: ${bp.narrative.summary || bp.narrative.scenarioKey}`);
+        if (bp.visual?.themeKey) lines.push(`  Visual: ${bp.visual.themeKey}`);
+        if (bp.mechanics?.summary) lines.push(`  Mechanics: ${bp.mechanics.summary}`);
+        if (bp.critique?.score != null) lines.push(`  Critique: ${bp.critique.score.toFixed(2)}/1.00`);
+      }
+      if (t.tool === 'remix_game' && r.sourceTitle) {
+        lines.push(`  Remixed from: ${r.sourceTitle}`);
+      }
+    }
+    if (critique?.issues?.length) {
+      lines.push('', '[Self-Check Issues]');
+      for (const iss of critique.issues.slice(0, 4)) {
+        lines.push(`- [${iss.severity}] ${iss.suggestion}`);
+      }
+    }
+    return lines.join('\n');
+  }
+
   synthesizeReply({ userMessage, intent, toolResults, critique, fallbackHistory, sessionSummary }) {
     if (toolResults.length === 0) {
-      const sys = this.buildSystemPrompt({ summary: sessionSummary });
+      const sys = this.buildSystemPrompt({ summary: sessionSummary, availableGenres: ALL_GENRES });
       return this.provider.chatSync
         ? this.provider.chatSync({ systemPrompt: sys, history: fallbackHistory, userMessage })
         : this.buildRuleReply(userMessage, intent);
