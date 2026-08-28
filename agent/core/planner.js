@@ -42,7 +42,16 @@ export class TaskPlanner {
       { name: 'delete_game', pattern: /(删除.*游戏|移除|destroy|delete|remove|drop|清空.*作品|不要了|删掉.*游戏)/i, args: ['gameId', 'confirm'] },
       { name: 'list_games', pattern: /(有哪些游戏|列出|查看列表|list|show|我的游戏|作品列表).{0,12}(游戏|game|作品|$)/i, args: [] },
       { name: 'save_game', pattern: /(保存|存档|持久化|写入|commit|flush|sync|保存游戏|同步保存)/i, args: ['gameId'] },
-      { name: 'update_basic_info', pattern: /(重命名|改名字|改.*名称|改.*描述|切换.*类型|变更.*类型|把.*类型改为|更新.*(基础|信息|描述|名称|分类))/i, args: ['gameId', 'name', 'description', 'genre'] },
+      { name: 'update_basic_info', pattern: /(重命名|改名字|改.*名称|切换.*类型|变更.*类型|把.*类型改为|更新.*(基础|信息|描述|名称|分类))/i, args: ['gameId', 'name', 'description', 'genre'] },
+      // Remix / fork a community game into a fresh editable draft
+      { name: 'remix_game', pattern: /(复刻|remix|fork.*game|二创|改编|基于.*做.*|参照.*创作|clone.*game)/i, args: ['shareCode', 'sourceGameId', 'name', 'tweak'] },
+      // Multi-agent specialist crew: coordinated creative brainstorm
+      { name: 'dispatch_crew', pattern: /(创作团|专家团|多智能体|协同构思|团队.*设计|crew|specialist|brainstorm.*team|一起.*构思|企划)/i, args: ['brief', 'genre', 'autoApply'] },
+      // Portable bundle export / import for backup, sharing, migration
+      { name: 'export_game', pattern: /(导出|export|备份|打包|下载.*游戏|归档|迁移出去)/i, args: ['gameId'] },
+      { name: 'import_game', pattern: /(导入|import|恢复.*游戏|上传.*游戏包|加载.*bundle|从.*包.*创建)/i, args: ['bundle', 'newName'] },
+      // Preview snapshot capture for gallery / cover art
+      { name: 'screenshot_game', pattern: /(截图|截个图|截.图|预览图|封面|缩略图|screenshot|snapshot|poster|cover|海报)/i, args: ['gameId', 'label'] },
 
       // High specificity quality + community tools (BEFORE help to avoid
       // false-positive on keywords like "功能" inside install/asset requests)
@@ -155,7 +164,22 @@ export class TaskPlanner {
       // Match patterns: 名叫XXX / 叫XXX / 名为XXX / 名叫"XXX" / 游戏名为XXX
       const nameMatch = message.match(/(?:名?叫|名(?:为|是)|游戏(?:名)?(?:为|叫|是))\s*["'「]?\s*([\w\u4e00-\u9fa5][\w\u4e00-\u9fa5\s\-_·]{0,29})/);
       let name = nameMatch ? nameMatch[1].trim() : '';
+      // Split on punctuation/whitespace first
       name = name.split(/[，。！？、,.!?;:：；\s]/).filter(Boolean)[0] || name;
+      // Then split on compound-intent boundary markers so a name like
+      // "星海遗迹的银河恶魔城游戏并应用赛博朋克主题" truncates to "星海遗迹"
+      // when the user is chaining create + theme/scenario/snippet in one message.
+      const boundaryRe = /(并(?:且|应用|添加|加)?|然后|接着|和|与|及|以及|同时|并且|应用|添加|加上|附带|配合|再来|加上|之后|之后加|再应用|再添加|再生成|再来个|再给|再设)/;
+      const boundaryHit = name.match(boundaryRe);
+      if (boundaryHit) name = name.slice(0, boundaryHit.index).trim();
+      // Strip trailing "游戏"/"game" descriptor users commonly append to a title.
+      name = name.replace(/(?:游戏|game)$/i, '').trim();
+      // Strip trailing "的+GENRE" descriptor (e.g. "星海遗迹的银河恶魔城" -> "星海遗迹").
+      // Require the "的" marker so proper names like "跳跃冒险" keep their suffix
+      // instead of clobbering "冒险" which is part of the intended title.
+      name = name.replace(/的(?:射击|冒险|角色扮演|解谜|对战|格斗|赛车|模拟|平台跳跃?|塔防|贪吃蛇|打砖块|迷宫|节奏|肉鸽|卡牌构筑?|银河恶魔城|放置挂机?|沙盒|视觉小说|自走棋|游戏|game)$/i, '').trim();
+      // Drop a dangling trailing "的" if any remains after the strips above.
+      name = name.replace(/的$/, '').trim();
       if (name) args.name = name;
 
       // Genre only from text before the name marker to avoid mis-pick inside title
@@ -183,6 +207,7 @@ export class TaskPlanner {
       'view_code', 'debug_with_diffs', 'install_snippet', 'edit_node_graph',
       'generate_npc', 'generate_asset', 'procedural_level', 'rapid_iterate',
       'configure_game_meta', 'save_game', 'delete_game', 'update_basic_info',
+      'remix_game', 'export_game', 'screenshot_game',
     ];
     if (targets.includes(intentName)) {
       const idMatch = message.match(/game[:\s#_-]*([a-zA-Z0-9_-]{6,})/i);
@@ -257,11 +282,20 @@ export class TaskPlanner {
       else if (/无敌闪烁|短暂无敌|invincible[ _-]?blink/i.test(message)) args.snippetKey = 'invincible_blink';
       else if (/连击|combo|score[ _-]?combo/i.test(message)) args.snippetKey = 'score_combo';
       else if (/限时|时间限制|倒计时|time[ _-]?limit/i.test(message)) args.snippetKey = 'time_limit';
+      else if (/下层|楼梯.*下一层|地牢.*下层|floor[ _-]?descent/i.test(message)) args.snippetKey = 'roguelike_floor_descent';
+      else if (/抽牌|抽卡.*回合|card[ _-]?draw/i.test(message)) args.snippetKey = 'deckbuilder_card_draw';
+      else if (/能力门|能力锁定|ability[ _-]?gate/i.test(message)) args.snippetKey = 'metroidvania_ability_gate';
+      else if (/转生|放置.*转生|prestige[ _-]?loop/i.test(message)) args.snippetKey = 'idle_prestige_loop';
+      else if (/合成.*配方|craft.*recipe/i.test(message)) args.snippetKey = 'sandbox_craft_recipe';
+      else if (/分支.*剧情|视觉小说.*分支|visual[ _-]?novel.*branch/i.test(message)) args.snippetKey = 'visual_novel_branch';
+      else if (/商店刷新|shop[ _-]?refresh/i.test(message)) args.snippetKey = 'auto_battler_shop_refresh';
       // Regex fallback for any remaining known keys
       if (!args.snippetKey) {
         const known = ['double_jump', 'dash_attack', 'collectible_coin', 'boss_wave',
                        'checkpoint', 'dialogue_tree', 'achievement_trigger', 'invincible_blink',
-                       'score_combo', 'time_limit'];
+                       'score_combo', 'time_limit', 'roguelike_floor_descent', 'deckbuilder_card_draw',
+                       'metroidvania_ability_gate', 'idle_prestige_loop', 'sandbox_craft_recipe',
+                       'visual_novel_branch', 'auto_battler_shop_refresh'];
         for (const key of known) {
           const alt = key.replace(/_/g, '[-_ ]?');
           if (new RegExp(alt).test(text)) { args.snippetKey = key; break; }
@@ -328,6 +362,27 @@ export class TaskPlanner {
       if (/(确认|确定|一定要|强制|真的要|不可撤销|立刻).*(删除|移除|destroy|drop|remove|delete)/i.test(message)) {
         args.confirm = true;
       }
+    }
+
+    if (intentName === 'remix_game') {
+      // Share code: gp_xxxx / mt9j... / #code
+      const sc = message.match(/(gp_[a-z0-9]{4,}|#[a-z0-9]{4,}|\bshare[:\s]*([a-z0-9_-]{4,}))/i);
+      if (sc) args.shareCode = (sc[2] || sc[1]).replace(/^#/, '');
+      // Source game id reference (game#xxx) falls back via generic id extractor below.
+      // Inline difficulty tweak for the remix copy
+      if (/地狱|hell|极难/i.test(message)) args.tweak = 'hell';
+      else if (/困难|hard/i.test(message)) args.tweak = 'hard';
+      else if (/简单|easy/i.test(message)) args.tweak = 'easy';
+      else if (/普通|normal/i.test(message)) args.tweak = 'normal';
+      // Optional explicit new name after 叫/名为
+      const nm = message.match(/(?:叫|名为|新名字|改名)\s*["'「]?\s*([\u4e00-\u9fa5A-Za-z0-9 _\-·]{1,40})/);
+      if (nm) args.name = nm[1].trim();
+    }
+
+    if (intentName === 'dispatch_crew') {
+      // The whole user message (minus the trigger verb) acts as the brief.
+      args.brief = message.replace(/创作团|专家团|多智能体|协同构思|团队.*设计|crew|specialist|brainstorm.*team|一起.*构思|企划|帮我|给我/g, '').trim() || message;
+      if (/落地|自动|创建|应用|auto/i.test(message)) args.autoApply = true;
     }
 
     if (intentName === 'search_asset_library') {
