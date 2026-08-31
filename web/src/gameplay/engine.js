@@ -23,6 +23,13 @@ export const PALETTE = {
   breakout: ['#c026d3', '#e879f9', '#a21caf'],
   maze: ['#9333ea', '#c084fc', '#7e22ce'],
   rhythm: ['#db2777', '#f9a8d4', '#be185d'],
+  roguelike: ['#7c2d12', '#dc2626', '#92400e'],
+  deckbuilder: ['#5b21b6', '#a78bfa', '#4c1d95'],
+  metroidvania: ['#0f766e', '#2dd4bf', '#155e54'],
+  idle: ['#a16207', '#fbbf24', '#854d0e'],
+  sandbox: ['#15803d', '#4ade80', '#166534'],
+  visual_novel: ['#be185d', '#f9a8d4', '#9d174d'],
+  auto_battler: ['#1e40af', '#3b82f6', '#1e3a8a'],
 };
 
 export const DEFAULT_KEYS = {
