@@ -17,6 +17,13 @@ const GENRE_OPTIONS = [
   { key: 'breakout', label: '🧱 打砖块' },
   { key: 'maze', label: '🔮 迷宫探索' },
   { key: 'rhythm', label: '🎵 节奏判定' },
+  { key: 'roguelike', label: '🃏 Roguelike' },
+  { key: 'deckbuilder', label: '🎴 卡牌构筑' },
+  { key: 'metroidvania', label: '🗺️ 银河恶魔城' },
+  { key: 'idle', label: '⏱️ 放置挂机' },
+  { key: 'sandbox', label: '🏖️ 沙盒模拟' },
+  { key: 'visual_novel', label: '📖 视觉小说' },
+  { key: 'auto_battler', label: '🤖 自动对战' },
 ];
 
 const THEME_OPTIONS = [
@@ -27,6 +34,7 @@ const THEME_OPTIONS = [
   { key: 'sunset', label: '日落狂想' },
   { key: 'ocean', label: '深海秘境' },
   { key: 'forest', label: '绿林深处' },
+  { key: 'neon_night', label: '霓虹夜幕' },
 ];
 
 const DIFFICULTY_OPTIONS = [
@@ -40,6 +48,7 @@ const SCENARIO_OPTIONS = [
   { key: 'fantasy', label: '魔幻·黎明之剑' },
   { key: 'space', label: '星际·远征方舟' },
   { key: 'cyber', label: '霓虹·回路黑客' },
+  { key: 'ancient', label: '古域·秘境遗迹' },
 ];
 
 const TABS = [
@@ -47,10 +56,53 @@ const TABS = [
   { key: 'config', label: '配置', icon: '⚙️' },
   { key: 'scripts', label: '脚本', icon: '💻' },
   { key: 'tweak', label: '调参', icon: '🎚️' },
+  { key: 'nodes', label: '节点', icon: '🔗' },
+  { key: 'assets', label: '资产', icon: '🎨' },
   { key: 'theme', label: '主题', icon: '🎨' },
   { key: 'scenario', label: '剧情', icon: '📖' },
+  { key: 'meta', label: '元设置', icon: '🛸' },
+  { key: 'explore', label: '社区', icon: '🌐' },
   { key: 'code', label: '源码', icon: '🧾' },
   { key: 'debug', label: '调试', icon: '🛠️' },
+];
+
+const NODE_PALETTE = [
+  { type: 'event', category: 'event', name: '游戏开始', desc: 'on start' },
+  { type: 'event', category: 'event', name: '按键输入', desc: 'on input' },
+  { type: 'event', category: 'event', name: '碰撞检测', desc: 'on hit' },
+  { type: 'event', category: 'event', name: '计时器', desc: 'on timer' },
+  { type: 'condition', category: 'condition', name: '大于比较', desc: 'if a > b' },
+  { type: 'condition', category: 'condition', name: '等于判断', desc: 'if a == b' },
+  { type: 'condition', category: 'condition', name: '概率检测', desc: 'if random < p' },
+  { type: 'action', category: 'action', name: '移动实体', desc: 'move target' },
+  { type: 'action', category: 'action', name: '生成实体', desc: 'spawn entity' },
+  { type: 'action', category: 'action', name: '销毁实体', desc: 'despawn target' },
+  { type: 'action', category: 'action', name: '加分得分', desc: 'score +n' },
+  { type: 'action', category: 'action', name: '游戏结束', desc: 'gameover' },
+];
+
+const ASSET_TYPES = [
+  { key: 'sprite', label: '🎨 精灵图' },
+  { key: 'sound', label: '🔊 音效' },
+  { key: 'music', label: '🎵 背景音乐' },
+  { key: 'ui', label: '🖼️ UI界面' },
+];
+
+const DEFAULT_COMMUNITY_GAMES = [
+  { id: 'c1', name: '像素勇者传', author: 'GenPlay官方', genre: 'rpg', icon: '⚔️', plays: 12430, likes: 890, badge: '精选' },
+  { id: 'c2', name: '星际突围', author: 'RocketLab', genre: 'shooter', icon: '🚀', plays: 9822, likes: 654, badge: '热门' },
+  { id: 'c3', name: '迷雾森林', author: 'PixelMage', genre: 'adventure', icon: '🌲', plays: 7451, likes: 512, badge: '新作' },
+  { id: 'c4', name: '霓虹漂移', author: 'CyberArtist', genre: 'racing', icon: '🏎️', plays: 6890, likes: 478, badge: '热门' },
+  { id: 'c5', name: '梦境拼图', author: 'PuzzleKing', genre: 'puzzle', icon: '🧩', plays: 5320, likes: 401, badge: '' },
+  { id: 'c6', name: '机甲军团', author: 'MechaDev', genre: 'auto_battler', icon: '🤖', plays: 4210, likes: 310, badge: '精选' },
+  { id: 'c7', name: '深渊回响', author: 'DungeonCrafter', genre: 'roguelike', icon: '🃏', plays: 8930, likes: 612, badge: '热门' },
+  { id: 'c8', name: '卡牌炼金术', author: 'CardSmith', genre: 'deckbuilder', icon: '🎴', plays: 6540, likes: 489, badge: '新作' },
+  { id: 'c9', name: '星海遗迹', author: 'ExplorerDev', genre: 'metroidvania', icon: '🗺️', plays: 5210, likes: 367, badge: '' },
+  { id: 'c10', name: '余烬工坊', author: 'IdleMaster', genre: 'idle', icon: '⏱️', plays: 7820, likes: 545, badge: '精选' },
+  { id: 'c11', name: '创世方块', author: 'BuilderX', genre: 'sandbox', icon: '🏖️', plays: 11200, likes: 780, badge: '热门' },
+  { id: 'c12', name: '樱花之约', author: 'StoryWeaver', genre: 'visual_novel', icon: '📖', plays: 4320, likes: 398, badge: '新作' },
+  { id: 'c13', name: '塔楼守卫', author: 'TowerGuard', genre: 'tower', icon: '🏰', plays: 6700, likes: 455, badge: '' },
+  { id: 'c14', name: '节奏脉冲', author: 'BeatDropper', genre: 'rhythm', icon: '🎵', plays: 5980, likes: 422, badge: '精选' },
 ];
 
 export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessionId }) {
@@ -61,8 +113,26 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const [codeView, setCodeView] = useState({ sections: null, section: 'all' });
+  const [exploreFilter, setExploreFilter] = useState('all');
+  const [stats, setStats] = useState({ total: 0, published: 0, runs: 0, genres: 0 });
 
   useEffect(() => { if (gameId) loadGame(gameId); }, [gameId]);
+
+  // Load overall stats for dashboard
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api.listGames();
+        const games = data.games || [];
+        setStats({
+          total: games.length,
+          published: games.filter((g) => g.status === 'published').length,
+          runs: games.reduce((s, g) => s + (g.runCount || 0), 0),
+          genres: new Set(games.map((g) => g.genre)).size,
+        });
+      } catch (e) { /* noop */ }
+    })();
+  }, [gameId]);
 
   // ---- Agent event-driven live sync ----
   useEffect(() => {
@@ -100,6 +170,30 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
       setTab('debug');
       flash(payload.applied ? '问题已自动修复' : '已输出诊断报告');
     }));
+    offs.push(events.on('studio:set-meta', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, meta: payload }) : g);
+      setTab('meta');
+      flash('游戏元设置已更新');
+    }));
+    offs.push(events.on('studio:add-asset', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, assets: [...(g.assets || []), payload] }) : g);
+      setTab('assets');
+      flash(`已添加资产：${payload.name}`);
+    }));
+    offs.push(events.on('studio:add-npc', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, npcs: [...(g.npcs || []), payload] }) : g);
+      setTab('assets');
+      flash(`角色「${payload.name}」加入游戏`);
+    }));
+    offs.push(events.on('studio:update-nodes', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, nodeGraph: payload }) : g);
+      setTab('nodes');
+      flash('节点图已更新');
+    }));
     return () => offs.forEach((f) => f && f());
   }, [game?.id]);
 
@@ -136,6 +230,8 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
       const data = await api.updateGame(game.id, {
         name: game.name, genre: game.genre, description: game.description,
         scripts: game.scripts, config: game.config,
+        theme: game.theme, scenario: game.scenario,
+        meta: game.meta, assets: game.assets, npcs: game.npcs, nodeGraph: game.nodeGraph,
       });
       setGame(data.game);
       onGamesChange?.();
@@ -160,7 +256,7 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
       const data = await api.publishGame(game.id);
       setGame(data.game);
       onGamesChange?.();
-      flash(`发布成功！链接：${data.shareLink}`);
+      flash(`发布成功！`);
     } catch (err) { alert(`发布失败: ${err.message}`); }
   };
 
@@ -197,6 +293,45 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
 
       {toast && <div className="studio-toast fade-in-slide">{toast}</div>}
 
+      {/* Dashboard hero - only show when no game is selected */}
+      {!game && (
+        <section className="dashboard-hero">
+          <span className="hero-badge">✨ AI 原生创作平台</span>
+          <h1>自然语言驱动，创意即刻生成</h1>
+          <p className="hero-sub">
+            GenPlay 融合全能 Agent 智能体，一句话即可完成从创意构思、关卡生成、角色设计、数值平衡到发布上线的全流程。
+            13 类经典 + 7 类创新玩法引擎，实时预览、一键调试。
+          </p>
+          <div className="hero-actions">
+            <button className="btn-primary pulse-on-hover" onClick={() => {
+              document.querySelector('.create-row input')?.focus();
+            }}>✨ 从零创建游戏</button>
+            <button className="btn-ghost" onClick={() => setTab('explore')}>🌐 探索社区作品</button>
+            <button className="btn-ghost" onClick={() => runEditorAction('creative_ideate') || flash('请先选择游戏或在左侧对话')}>
+              💡 生成创意
+            </button>
+          </div>
+          <div className="hero-stats">
+            <div className="hero-stat">
+              <div className="hero-stat-num">{stats.total}</div>
+              <div className="hero-stat-label">游戏总数</div>
+            </div>
+            <div className="hero-stat">
+              <div className="hero-stat-num">{stats.published}</div>
+              <div className="hero-stat-label">已发布</div>
+            </div>
+            <div className="hero-stat">
+              <div className="hero-stat-num">{stats.runs}</div>
+              <div className="hero-stat-label">累计运行</div>
+            </div>
+            <div className="hero-stat">
+              <div className="hero-stat-num">{stats.genres}</div>
+              <div className="hero-stat-label">玩法引擎</div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Create form */}
       <section className="create-box">
         <h3>✨ 新建游戏</h3>
@@ -214,11 +349,26 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
       </section>
 
       {!game ? (
-        <div className="edit-empty">
-          <div className="empty-emoji bounce">🎮</div>
-          <p>从左侧选择游戏，或在上方创建一个新游戏开始创作。</p>
-          <p className="edit-empty-sub">所有编辑器操作也可以在左侧 Agent 中用自然语言控制。</p>
-        </div>
+        <>
+          {tab === 'explore' ? (
+            <section style={{ margin: '0 28px 28px' }}>
+              <TabExplore
+                exploreFilter={exploreFilter}
+                setExploreFilter={setExploreFilter}
+                onPick={(g) => alert(`打开社区作品: ${g.name}\n(示例社区展示，正式发布后可直接导入或试玩)`)}
+              />
+            </section>
+          ) : (
+            <div className="edit-empty">
+              <div className="empty-emoji bounce">🎮</div>
+              <p>从左侧选择游戏，或在上方创建一个新游戏开始创作。</p>
+              <p className="edit-empty-sub">所有编辑器操作也可以在左侧 Agent 中用自然语言控制。</p>
+              <div className="quick-prompts" style={{ marginTop: 24 }}>
+                <button className="chip" onClick={() => setTab('explore')}>🌐 浏览社区作品</button>
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <section className="studio-split">
           {/* ---------- Left: Editor column ---------- */}
@@ -259,24 +409,27 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
               {tab === 'config' && <TabConfig game={game} setGame={setGame} />}
               {tab === 'scripts' && <TabScripts game={game} setGame={setGame} />}
               {tab === 'tweak' && <TabTweak game={game} setGame={setGame} runEditorAction={runEditorAction} />}
+              {tab === 'nodes' && <TabNodes game={game} setGame={setGame} runEditorAction={runEditorAction} />}
+              {tab === 'assets' && <TabAssets game={game} setGame={setGame} runEditorAction={runEditorAction} />}
               {tab === 'theme' && <TabTheme game={game} runEditorAction={runEditorAction} />}
               {tab === 'scenario' && <TabScenario game={game} runEditorAction={runEditorAction} />}
+              {tab === 'meta' && <TabMeta game={game} setGame={setGame} runEditorAction={runEditorAction} />}
+              {tab === 'explore' && <TabExplore exploreFilter={exploreFilter} setExploreFilter={setExploreFilter} onPick={(g) => flash(`社区作品: ${g.name}`)} />}
               {tab === 'code' && <TabCodeView game={game} codeView={codeView} runEditorAction={runEditorAction} />}
               {tab === 'debug' && <TabDebug game={game} runResult={runResult} runEditorAction={runEditorAction} />}
             </div>
           </div>
 
-          {/* ---------- Right: Live preview column ---------- */}
           <div className="preview-col">
             <div className="preview-col-head">
               <h4>🎯 实时预览</h4>
               <span className="preview-col-hint">
-                键盘 · WASD / 方向键 / 空格 进行交互
+                键盘 · WASD / 方向键 / 空格 交互
               </span>
             </div>
             <GamePreview game={game} />
             {runResult && (
-              <div className={`run-result ${runResult.status}`}>
+              <div className={`run-result ${runResult.status === 'ok' ? 'ok' : (runResult.issues?.length ? 'warn' : '')}`}>
                 <h4>运行报告 · {runResult.durationMs}ms</h4>
                 <ul className="logs">
                   {runResult.logs?.map((l, i) => <li key={i}>{l}</li>)}
@@ -319,6 +472,8 @@ function TabBasic({ game, setGame }) {
           <li>运行次数：<b>{game.runCount || 0}</b></li>
           <li>编辑记录：<b>{(game.editLog || []).length}</b> 条</li>
           <li>最近运行：<b>{game.lastRun?.status || '未运行'}</b></li>
+          <li>资产数量：<b>{(game.assets || []).length}</b></li>
+          <li>角色数量：<b>{(game.npcs || []).length}</b></li>
           <li>更新时间：<b>{new Date(game.updatedAt || game.createdAt || Date.now()).toLocaleString()}</b></li>
         </ul>
       </div>
@@ -463,6 +618,9 @@ function TabTweak({ game, setGame, runEditorAction }) {
         <button className="btn-primary" onClick={() => runEditorAction('tweak_params', {
           speed: player.speed, hp: player.hp, damage: player.atk,
         })}>通过 Agent 同步写入</button>
+        <button className="btn-ghost" style={{ marginLeft: 10 }} onClick={() => runEditorAction('rapid_iterate', { focus: 'balance' })}>
+          ⚡ 快速迭代平衡
+        </button>
       </div>
     </div>
   );
@@ -499,6 +657,12 @@ function TabTheme({ game, runEditorAction }) {
             <span className="theme-card-hint">点击应用</span>
           </button>
         ))}
+      </div>
+      <div className="tweak-group">
+        <h5>💡 让 Agent 生成定制主题</h5>
+        <button className="btn-ghost" onClick={() => runEditorAction('search_asset_library', { category: 'theme' })}>
+          📚 从资产库安装主题
+        </button>
       </div>
     </div>
   );
@@ -544,11 +708,12 @@ function TabCodeView({ game, codeView, runEditorAction }) {
   const sections = codeView.sections || {
     config: game.config, scripts: game.scripts,
     theme: game.theme, scenario: game.scenario,
+    meta: game.meta, assets: game.assets, npcs: game.npcs,
   };
   return (
     <div className="tab-fields">
       <div className="code-tabs">
-        {['all', 'config', 'scripts', 'theme', 'scenario'].map((s) => (
+        {['all', 'config', 'scripts', 'theme', 'scenario', 'meta', 'assets', 'npcs'].map((s) => (
           <button key={s} className="btn-ghost btn-sm"
             onClick={() => runEditorAction('view_code', { section: s })}>
             {s === 'all' ? '全部' : s}
@@ -573,6 +738,9 @@ function TabDebug({ game, runResult, runEditorAction }) {
         <button className="btn-ghost" onClick={() => runEditorAction('debug_game')}>🔍 静态检查</button>
         <button className="btn-primary" onClick={() => runEditorAction('debug_with_diffs')}>🛠️ 深度修复（自动打补丁）</button>
         <button className="btn-ghost" onClick={() => runEditorAction('run_game')}>▶ 运行验证</button>
+        <button className="btn-ghost" onClick={() => runEditorAction('rapid_iterate', { focus: 'quality' })}>
+          ⚡ 质量自检
+        </button>
       </div>
       {game.debugReport && (
         <div className="debug-report">
@@ -594,6 +762,402 @@ function TabDebug({ game, runResult, runEditorAction }) {
           {runResult.issues?.length > 0 && <p className="issues">告警：{runResult.issues.join('；')}</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---- New panels: Nodes, Assets, Meta, Explore ----
+
+function TabNodes({ game, setGame, runEditorAction }) {
+  const graph = game.nodeGraph || { nodes: [], edges: [] };
+  const [nodes, setNodes] = useState(graph.nodes || []);
+  const [selected, setSelected] = useState(null);
+
+  useEffect(() => {
+    setNodes(graph.nodes || []);
+  }, [game.nodeGraph]);
+
+  const addNode = (palette) => {
+    const newNode = {
+      id: `n_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      type: palette.type, category: palette.category,
+      name: palette.name, desc: palette.desc,
+      x: 40 + (nodes.length % 4) * 210, y: 40 + Math.floor(nodes.length / 4) * 130,
+      data: {},
+    };
+    setNodes([...nodes, newNode]);
+    setSelected(newNode.id);
+  };
+
+  const removeNode = (id) => {
+    setNodes(nodes.filter((n) => n.id !== id));
+    if (selected === id) setSelected(null);
+  };
+
+  const saveToGame = () => {
+    const newGraph = { nodes, edges: graph.edges || [] };
+    setGame({ ...game, nodeGraph: newGraph });
+    runEditorAction('edit_node_graph', {
+      action: 'import_graph',
+      graph: newGraph,
+    });
+  };
+
+  return (
+    <div className="node-editor tab-fields">
+      <div className="node-toolbar">
+        <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>🔗 可视化节点脚本</span>
+        <div className="node-toolbar-group">
+          <button className="btn-ghost btn-sm" onClick={() => runEditorAction('edit_node_graph', { action: 'dsl_to_graph', dsl: game.scripts || '' })}>
+            📥 从 DSL 导入
+          </button>
+          <button className="btn-ghost btn-sm" onClick={() => runEditorAction('edit_node_graph', { action: 'export_dsl' })}>
+            📤 导出为 DSL
+          </button>
+          <button className="btn-primary btn-sm" onClick={saveToGame}>💾 保存节点图</button>
+        </div>
+      </div>
+      <div className="node-palette">
+        {NODE_PALETTE.map((p, i) => (
+          <button key={i} className="node-palette-btn" onClick={() => addNode(p)}>
+            <span className="np-ic">
+              {p.category === 'event' ? '⚡' : p.category === 'condition' ? '❓' : '🎯'}
+            </span>
+            {p.name}
+            <small style={{ display: 'block', color: 'var(--text-faint)', fontSize: '0.65rem' }}>{p.desc}</small>
+          </button>
+        ))}
+      </div>
+      <div className="node-canvas">
+        <div className="node-graph" style={{ height: `${Math.max(280, Math.ceil(nodes.length / 4) * 130 + 120)}px` }}>
+          {nodes.length === 0 && (
+            <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: 'var(--text-faint)', fontSize: '0.85rem' }}>
+              从上方调色板拖拽（或点击）添加节点，连接事件 → 条件 → 动作构建游戏逻辑
+            </div>
+          )}
+          {nodes.map((n) => (
+            <div key={n.id}
+              className={`node-block ${n.type} ${selected === n.id ? 'selected' : ''}`}
+              style={{ left: n.x, top: n.y }}
+              onClick={() => setSelected(n.id)}>
+              <div className="node-head">
+                <span>{n.name}</span>
+                <span className="nh-type">{n.category}</span>
+              </div>
+              <div className="node-body">
+                <div className="nv-row"><span>触发</span><b>{n.desc}</b></div>
+              </div>
+              <div className="node-foot">
+                {n.category !== 'event' && <span className="node-port in" title="输入" />}
+                <span>&nbsp;</span>
+                {n.category !== 'action' && <span className="node-port out" title="输出" />}
+                <button className="node-del" onClick={(e) => { e.stopPropagation(); removeNode(n.id); }}>✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TabAssets({ game, setGame, runEditorAction }) {
+  const [assetType, setAssetType] = useState('sprite');
+  const [assetName, setAssetName] = useState('');
+  const [assetDesc, setAssetDesc] = useState('');
+  const assets = game.assets || [];
+  const npcs = game.npcs || [];
+
+  const genAsset = () => {
+    if (!assetName.trim()) return;
+    runEditorAction('generate_asset', {
+      assetType, name: assetName, description: assetDesc || assetName,
+    });
+    setAssetName(''); setAssetDesc('');
+  };
+
+  const genNpc = () => {
+    runEditorAction('generate_npc', { count: 2 });
+  };
+
+  const browseAssets = () => {
+    runEditorAction('search_asset_library', { category: assetType, query: assetDesc });
+  };
+
+  return (
+    <div className="asset-panel tab-fields">
+      <h4 className="tab-h">🎨 资产与角色</h4>
+
+      <div className="asset-form">
+        <div className="field">
+          <label>类型</label>
+          <select value={assetType} onChange={(e) => setAssetType(e.target.value)}>
+            {ASSET_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label>名称</label>
+          <input value={assetName} onChange={(e) => setAssetName(e.target.value)} placeholder="如：激光炮、胜利曲、金币音效" />
+        </div>
+        <div className="field field-full">
+          <label>描述 / 参考</label>
+          <input value={assetDesc} onChange={(e) => setAssetDesc(e.target.value)} placeholder="详细描述外观、风格、用途…" />
+        </div>
+        <div className="field field-full" style={{ flexDirection: 'row', gap: 8 }}>
+          <button className="btn-primary" onClick={genAsset}>➕ 生成资产</button>
+          <button className="btn-ghost" onClick={browseAssets}>📚 资产库搜索</button>
+          <button className="btn-ghost" onClick={genNpc}>🎭 设计 2 个 NPC</button>
+        </div>
+      </div>
+
+      <div>
+        <h5 style={{ fontSize: '0.9rem', marginBottom: 10 }}>🧩 游戏资产 ({assets.length})</h5>
+        <div className="asset-list">
+          {assets.length === 0 && (
+            <div style={{ gridColumn: '1 / -1', color: 'var(--text-faint)', fontSize: '0.82rem', padding: 18, textAlign: 'center', background: 'var(--surface)', borderRadius: 12, border: '1px dashed var(--border)' }}>
+              暂无资产。使用上方表单或让 Agent 在对话中生成资产 →
+            </div>
+          )}
+          {assets.map((a, i) => (
+            <div key={i} className="asset-card">
+              <span className={`asset-type-tag at-${a.type || 'sprite'}`}>
+                {ASSET_TYPES.find((t) => t.key === a.type)?.label || a.type}
+              </span>
+              <h5>{a.name}</h5>
+              <p>{a.description || a.spec || '—'}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <h5 style={{ fontSize: '0.9rem', marginBottom: 10 }}>🎭 角色 NPC ({npcs.length})</h5>
+        <div className="npc-list">
+          {npcs.length === 0 && (
+            <div style={{ gridColumn: '1 / -1', color: 'var(--text-faint)', fontSize: '0.82rem', padding: 18, textAlign: 'center', background: 'var(--surface)', borderRadius: 12, border: '1px dashed var(--border)' }}>
+              暂无角色。点击「设计 2 个 NPC」或在对话中描述角色特征 →
+            </div>
+          )}
+          {npcs.map((n, i) => (
+            <div key={i} className="npc-card">
+              <div className="npc-card-head">
+                <span className="npc-avatar">{n.avatar || '🧝'}</span>
+                <div>
+                  <h5>{n.name}</h5>
+                  <span className="npc-role">{n.role || '角色'}</span>
+                </div>
+              </div>
+              <div className="npc-personality">
+                {(n.traits || n.personality || []).slice(0, 4).map((t, j) => (
+                  <span key={j} className="npc-trait">{t}</span>
+                ))}
+              </div>
+              <p className="npc-desc">{n.description || n.backstory || '—'}</p>
+              {n.quote && <div className="npc-quote">“{n.quote}”</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TabMeta({ game, setGame, runEditorAction }) {
+  const meta = game.meta || {};
+  const setMeta = (patch) => {
+    const next = { ...meta, ...patch };
+    setGame({ ...game, meta: next });
+    // Also sync via agent tool if multiplayer/monetization key changed
+    if (patch.multiplayer !== undefined || patch.monetization !== undefined) {
+      runEditorAction('configure_game_meta', next);
+    }
+  };
+
+  const achievements = meta.achievements || [
+    { id: 1, name: '初次胜利', desc: '完成第一局游戏', unlocked: false, icon: '🏆' },
+    { id: 2, name: '高分猎手', desc: '单局得分超过 1000', unlocked: false, icon: '🎯' },
+    { id: 3, name: '完美通关', desc: '不损失一命通过', unlocked: false, icon: '⭐' },
+  ];
+
+  return (
+    <div className="tab-fields">
+      <h4 className="tab-h">🛸 游戏元设置</h4>
+
+      <div className="meta-section">
+        <h5>🌐 多人与协作</h5>
+        <div className="toggle-row">
+          <div className="toggle-info">
+            <span className="toggle-label">启用多人对战</span>
+            <span className="toggle-hint">最多支持 4 人联机（P2P / 房间）</span>
+          </div>
+          <label className="switch">
+            <input type="checkbox" checked={!!meta.multiplayer?.enabled}
+              onChange={(e) => setMeta({ multiplayer: { ...(meta.multiplayer || {}), enabled: e.target.checked } })} />
+            <span className="slider-switch" />
+          </label>
+        </div>
+        <div className="toggle-row">
+          <div className="toggle-info">
+            <span className="toggle-label">排行榜</span>
+            <span className="toggle-hint">社区全球分数榜单</span>
+          </div>
+          <label className="switch">
+            <input type="checkbox" checked={!!meta.leaderboard}
+              onChange={(e) => setMeta({ leaderboard: e.target.checked })} />
+            <span className="slider-switch" />
+          </label>
+        </div>
+        <div className="toggle-row">
+          <div className="toggle-info">
+            <span className="toggle-label">观战模式</span>
+            <span className="toggle-hint">允许其他玩家观看当前对局</span>
+          </div>
+          <label className="switch">
+            <input type="checkbox" checked={!!meta.spectator}
+              onChange={(e) => setMeta({ spectator: e.target.checked })} />
+            <span className="slider-switch" />
+          </label>
+        </div>
+      </div>
+
+      <div className="meta-section">
+        <h5>💰 商业化配置</h5>
+        <div className="toggle-row">
+          <div className="toggle-info">
+            <span className="toggle-label">内置奖励广告</span>
+            <span className="toggle-hint">复活、加倍奖励等场景激励</span>
+          </div>
+          <label className="switch">
+            <input type="checkbox" checked={!!meta.monetization?.ads}
+              onChange={(e) => setMeta({ monetization: { ...(meta.monetization || {}), ads: e.target.checked } })} />
+            <span className="slider-switch" />
+          </label>
+        </div>
+        <div className="toggle-row">
+          <div className="toggle-info">
+            <span className="toggle-label">内购皮肤/道具</span>
+            <span className="toggle-hint">商店售卖装饰物与体验道具</span>
+          </div>
+          <label className="switch">
+            <input type="checkbox" checked={!!meta.monetization?.iap}
+              onChange={(e) => setMeta({ monetization: { ...(meta.monetization || {}), iap: e.target.checked } })} />
+            <span className="slider-switch" />
+          </label>
+        </div>
+        <div className="toggle-row">
+          <div className="toggle-info">
+            <span className="toggle-label">云存档同步</span>
+            <span className="toggle-hint">跨设备进度保存</span>
+          </div>
+          <label className="switch">
+            <input type="checkbox" checked={!!meta.cloudSave !== false}
+              onChange={(e) => setMeta({ cloudSave: e.target.checked })} />
+            <span className="slider-switch" />
+          </label>
+        </div>
+      </div>
+
+      <div className="meta-section">
+        <h5>♿ 无障碍与品质</h5>
+        <div className="toggle-row">
+          <div className="toggle-info">
+            <span className="toggle-label">色盲模式配色</span>
+            <span className="toggle-hint">自动替换对比度颜色</span>
+          </div>
+          <label className="switch">
+            <input type="checkbox" checked={!!meta.accessibility?.colorBlind}
+              onChange={(e) => setMeta({ accessibility: { ...(meta.accessibility || {}), colorBlind: e.target.checked } })} />
+            <span className="slider-switch" />
+          </label>
+        </div>
+        <div className="toggle-row">
+          <div className="toggle-info">
+            <span className="toggle-label">字幕与对话气泡</span>
+            <span className="toggle-hint">对白完全可阅读</span>
+          </div>
+          <label className="switch">
+            <input type="checkbox" checked={!!meta.accessibility?.subtitles !== false}
+              onChange={(e) => setMeta({ accessibility: { ...(meta.accessibility || {}), subtitles: e.target.checked } })} />
+            <span className="slider-switch" />
+          </label>
+        </div>
+        <div className="toggle-row">
+          <div className="toggle-info">
+            <span className="toggle-label">难度自适应</span>
+            <span className="toggle-hint">根据玩家水平动态调整数值</span>
+          </div>
+          <label className="switch">
+            <input type="checkbox" checked={!!meta.dynamicDifficulty}
+              onChange={(e) => setMeta({ dynamicDifficulty: e.target.checked })} />
+            <span className="slider-switch" />
+          </label>
+        </div>
+      </div>
+
+      <div className="meta-section">
+        <h5>🏆 成就系统</h5>
+        <div className="achievement-list">
+          {achievements.map((a) => (
+            <div key={a.id} className="achievement-item">
+              <span className="achievement-ic">{a.icon}</span>
+              <div className="achievement-body">
+                <div className="achievement-name">{a.name}</div>
+                <div className="achievement-desc">{a.desc}</div>
+              </div>
+              <span className="achievement-unlock">{a.unlocked ? '已解锁' : '未解锁'}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="tweak-group" style={{ marginTop: 0 }}>
+        <button className="btn-primary" onClick={() => runEditorAction('configure_game_meta', meta)}>
+          💾 通过 Agent 同步至后端
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TabExplore({ exploreFilter, setExploreFilter, onPick }) {
+  const games = DEFAULT_COMMUNITY_GAMES.filter((g) => exploreFilter === 'all' || g.genre === exploreFilter);
+  const tags = [
+    { key: 'all', label: '全部' },
+    ...GENRE_OPTIONS.map((g) => ({ key: g.key, label: g.label })),
+  ];
+  return (
+    <div className="tab-fields">
+      <h4 className="tab-h">🌐 社区探索</h4>
+      <div className="explore-tabs">
+        {tags.map((t) => (
+          <button key={t.key} className={`btn-ghost btn-sm ${exploreFilter === t.key ? 'active' : ''}`}
+            onClick={() => setExploreFilter(t.key)}
+            style={exploreFilter === t.key ? { background: 'var(--grad-cool)', color: '#fff', borderColor: 'transparent' } : {}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="explore-grid">
+        {games.map((g) => (
+          <div key={g.id} className="explore-card" onClick={() => onPick(g)}>
+            <div className="explore-cover">
+              <span>{g.icon}</span>
+              {g.badge && <span className="explore-cover-badge">{g.badge}</span>}
+            </div>
+            <div className="explore-body">
+              <div className="explore-title">{g.name}</div>
+              <div className="explore-author">@{g.author}</div>
+              <div className="explore-stats">
+                <span>▶ {g.plays.toLocaleString()}</span>
+                <span>❤ {g.likes}</span>
+                <span style={{ marginLeft: 'auto' }}>
+                  {GENRE_OPTIONS.find((o) => o.key === g.genre)?.label || g.genre}
+                </span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
