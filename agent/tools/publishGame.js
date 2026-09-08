@@ -1,6 +1,8 @@
 /**
  * publish_game - 发布工具
  * 将草稿游戏发布为可玩/已发布状态。
+ * Persists a canonical snapshot into the published index so community tools
+ * (explore_community, remix_game) can resolve the share code later.
  */
 export function publishGameTool({ gameService }) {
   return {
@@ -22,16 +24,44 @@ export function publishGameTool({ gameService }) {
         return { ok: false, error: '游戏尚无逻辑脚本，无法发布。请先生成游戏逻辑。' };
       }
 
+      // Delegate to GameService.publish so the canonical snapshot lands in the
+      // published index (config/scripts/theme/scenario). This keeps the share
+      // code resolvable by remix_game and the community listing, not just by
+      // the live game record.
+      const pub = await gameService.publish(gameId, {
+        title: game.name,
+        description: game.description,
+        author: game.owner || 'Anonymous',
+      });
+      if (!pub || !pub.shareCode) {
+        return { ok: false, error: '发布失败：无法写入社区索引' };
+      }
+      const shareCode = pub.shareCode;
+      const shareLink = `/play/${shareCode}`;
+      // Ensure shareLink is stamped on the game record (publishGame sets
+      // status + shareCode but not the friendly link).
       const updated = await gameService.update(gameId, {
-        status: 'published',
-        publishedAt: new Date().toISOString(),
+        shareLink,
+        publishedAt: pub.publishedAt,
         updatedAt: new Date().toISOString(),
       });
+
+      const editorActions = [
+        {
+          type: 'studio:set-status',
+          gameId,
+          payload: { status: 'published', shareCode, shareLink },
+        },
+        { type: 'sidebar:refresh-list', payload: { reason: 'published' } },
+      ];
 
       return {
         ok: true,
         game: updated,
-        summary: `游戏「${updated.name}」已成功发布上线，现可通过多端访问。`,
+        shareCode,
+        shareLink,
+        editorActions,
+        summary: `游戏「${updated.name}」已成功发布上线，分享码：${shareCode}，访问路径：${shareLink}`,
       };
     },
   };
