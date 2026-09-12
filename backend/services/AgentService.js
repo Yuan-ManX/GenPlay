@@ -34,6 +34,23 @@ export class AgentService {
   }
 
   /**
+   * Streaming chat: forwards lifecycle events from the orchestrator to an
+   * onEvent callback so the SSE endpoint can push them to the frontend in
+   * realtime (plan, tool_start, tool_end, reply, done).
+   */
+  async chatStream({ sessionId, message, onEvent }) {
+    const sid = sessionId || this.newSession();
+    const result = await this.agent.handleMessage({ sessionId: sid, message, onEvent });
+    this.sessions.set(sid, {
+      id: sid,
+      messages: this.agent.memory.get(sid),
+      currentGameId: result.currentGameId || null,
+      updatedAt: new Date().toISOString(),
+    });
+    return { ...result, sessionId: sid };
+  }
+
+  /**
    * Execute a raw agent tool by name + args (bypasses planner & reasoning loop).
    * Used by /api/editor/action for frontend-driven studio operations that want
    * shared tool semantics and editorActions.
@@ -49,13 +66,40 @@ export class AgentService {
   }
 
   listSessions() {
-    return Array.from(this.sessions.values());
+    // Enrich raw session entries with memory-backed metadata so the
+    // frontend sidebar can render previews, intent counts, and timestamps
+    // without a second round-trip per session.
+    return Array.from(this.sessions.values()).map((s) => {
+      const mem = this.agent.memory.getSession(s.id);
+      const messages = mem?.messages || [];
+      const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+      const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+      const intents = mem?.intents || [];
+      const distinctTools = Array.from(new Set(intents.map((i) => i.name)));
+      return {
+        id: s.id,
+        messageCount: messages.length,
+        currentGameId: s.currentGameId || null,
+        updatedAt: s.updatedAt,
+        createdAt: mem?.createdAt || s.updatedAt,
+        summary: mem?.summary || '',
+        intents: distinctTools,
+        lastUserPreview: lastUser?.content?.slice(0, 80) || '',
+        lastAssistantPreview: lastAssistant?.content?.slice(0, 80) || '',
+      };
+    }).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   }
 
   getSession(id) {
     const s = this.sessions.get(id);
     if (!s) return null;
-    return this.agent.memory.getSession(id);
+    const mem = this.agent.memory.getSession(id);
+    return {
+      ...mem,
+      id,
+      currentGameId: s.currentGameId || null,
+      updatedAt: s.updatedAt,
+    };
   }
 
   reset(sessionId) {
