@@ -72,23 +72,27 @@ export default function GamePreview({ game }) {
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKey);
 
-    // 画布点击（解谜等需要）
-    const onPointer = (e) => {
+    // Canvas pointer interactions (puzzle clicks, sandbox build/delete, etc.)
+    const onPointer = (e, isRight = false) => {
       const rect = canvas.getBoundingClientRect();
       const x = (e.clientX - rect.left) * (W / rect.width);
       const y = (e.clientY - rect.top) * (H / rect.height);
       if (engine.onPointer && stateRef.current) {
-        engine.onPointer(stateRef.current, x, y);
+        engine.onPointer(stateRef.current, x, y, isRight);
       }
     };
-    canvas.addEventListener('click', onPointer);
+    const onClick = (e) => onPointer(e, false);
+    const onContext = (e) => { e.preventDefault(); onPointer(e, true); };
+    canvas.addEventListener('click', onClick);
+    canvas.addEventListener('contextmenu', onContext);
 
     canvas.focus?.();
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
-      canvas.removeEventListener('click', onPointer);
+      canvas.removeEventListener('click', onClick);
+      canvas.removeEventListener('contextmenu', onContext);
     };
   }, [genre, game?.id, JSON.stringify(game?.config)]);
 
