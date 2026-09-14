@@ -1,36 +1,66 @@
 import { AgentOrchestrator } from './core/orchestrator.js';
 import { MemoryStore } from './core/memory.js';
+import { ArtifactMemory } from './core/artifactMemory.js';
+import { SelfReflector } from './core/reflector.js';
 import { TaskPlanner } from './core/planner.js';
 import { ToolRegistry } from './tools/registry.js';
 import { LLMProvider } from './providers/llm.js';
-import { createGameTool } from './tools/createGame.js';
+import { SharedAssetLibrary } from './templates/assetLibrary.js';
 
-export { AgentOrchestrator, MemoryStore, TaskPlanner, ToolRegistry, LLMProvider };
+export {
+  AgentOrchestrator,
+  MemoryStore,
+  ArtifactMemory,
+  SelfReflector,
+  TaskPlanner,
+  ToolRegistry,
+  LLMProvider,
+  SharedAssetLibrary,
+};
 
 /**
- * GenPlay Agent Core
- * - orchestrator: 编排对话、任务执行、工具调用
- * - memory:       会话上下文记忆
- * - planner:      任务拆解
- * - tools:        工具链（生成/编辑/调试/配置）
+ * GenPlay Agent Core factory.
+ * Wires together: session memory, artifact memory, reflector,
+ * shared asset library, LLM provider, tool registry, planner, and
+ * returns a fully-configured AgentOrchestrator.
  */
-
 export function createAgent(config = {}) {
   const memory = config.memory || new MemoryStore();
+  const artifactMemory = config.artifactMemory || new ArtifactMemory();
   const provider = config.provider instanceof LLMProvider
     ? config.provider
     : new LLMProvider(config.provider || {});
-  const tools = config.tools || new ToolRegistry(config);
-  // 把 provider 注入工具链，让 createGame 能调用 LLM 生成专属参数
-  if (config.tools) {
-    tools.setProvider?.(provider);
-  } else {
-    tools.services = tools.services || {};
-    tools.services.provider = provider;
-    tools.register(createGameTool(tools.services));
-  }
+  const reflector = config.reflector || new SelfReflector({ provider });
+  const assetLibrary = config.assetLibrary || new SharedAssetLibrary();
+
+  const services = {
+    gameService: config.gameService || null,
+    provider,
+    reflector,
+    artifactMemory,
+    assetLibrary,
+    ...(config.extraServices || {}),
+  };
+  const tools = new ToolRegistry(services);
+  tools.setProvider(provider);
+  tools.setReflector(reflector);
+  tools.setArtifactMemory(artifactMemory);
+  tools.setAssetLibrary(assetLibrary);
+
   const planner = config.planner || new TaskPlanner();
-  return new AgentOrchestrator({ memory, tools, planner, provider, systemPrompt: config.systemPrompt });
+
+  const agent = new AgentOrchestrator({
+    memory,
+    artifactMemory,
+    reflector,
+    tools,
+    planner,
+    provider,
+    systemPrompt: config.systemPrompt,
+    maxSteps: config.maxSteps || 6,
+  });
+
+  return agent;
 }
 
 export default { createAgent };
