@@ -6,7 +6,7 @@
 export function installSnippetTool({ gameService, assetLibrary }) {
   return {
     name: 'install_snippet',
-    description: 'Install a logic snippet / gameplay recipe from the asset library into a target game. Known keys: double_jump, dash_attack, collectible_coin, boss_wave, checkpoint, dialogue_tree, achievement_trigger.',
+    description: 'Install a logic snippet / gameplay recipe from the asset library into a target game. Known keys: double_jump, dash_attack, collectible_coin, boss_wave, checkpoint, dialogue_tree, achievement_trigger, invincible_blink, score_combo, time_limit, roguelike_floor_descent, deckbuilder_card_draw, metroidvania_ability_gate, idle_prestige_loop, sandbox_craft_recipe, visual_novel_branch, auto_battler_shop_refresh.',
     parameters: {
       type: 'object',
       required: ['gameId', 'snippetKey'],
