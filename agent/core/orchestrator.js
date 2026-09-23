@@ -1,6 +1,7 @@
 import { MemoryStore } from './memory.js';
 import { ArtifactMemory } from './artifactMemory.js';
 import { SelfReflector } from './reflector.js';
+import { PlanMemory } from './planMemory.js';
 import { LLMProvider } from '../providers/llm.js';
 import { listGenres } from '../templates/gameTemplates.js';
 
@@ -17,7 +18,7 @@ const ALL_GENRES = listGenres().map((g) => g.key);
  * frontend by the top-level response (editorActions[]).
  */
 export class AgentOrchestrator {
-  constructor({ memory, artifactMemory, reflector, tools, planner, provider, systemPrompt, maxSteps = 6 } = {}) {
+  constructor({ memory, artifactMemory, reflector, tools, planner, provider, systemPrompt, maxSteps = 6, planMemory } = {}) {
     this.memory = memory || new MemoryStore();
     this.artifactMemory = artifactMemory || new ArtifactMemory();
     this.reflector = reflector || new SelfReflector({ provider });
@@ -26,6 +27,48 @@ export class AgentOrchestrator {
     this.provider = provider || new LLMProvider();
     this.systemPrompt = systemPrompt || this.defaultSystemPrompt();
     this.maxSteps = maxSteps;
+    // Multi-turn plan tracker: detects long-horizon goals spanning several
+    // messages and surfaces pending steps in the system prompt so the agent
+    // stays focused on the user's original intent across turns.
+    this.planMemory = planMemory || new PlanMemory();
+    // Per-session decision traces for the agent_explain introspection tool.
+    // Stores the last intent + structured tool-call trace for each session so
+    // the user can ask "why did you do X" and get an auditable answer.
+    this.lastIntents = new Map();
+    this.lastTraces = new Map();
+  }
+
+  /**
+   * Return the last detected intent for a session (for agent_explain).
+   */
+  getLastIntent(sessionId) {
+    return this.lastIntents.get(sessionId) || null;
+  }
+
+  /**
+   * Return the last tool-call trace for a session (for agent_explain).
+   * Shape: { steps: [{ tool, ok, summary, error, durationMs }], message, startedAt }
+   */
+  getLastTrace(sessionId) {
+    return this.lastTraces.get(sessionId) || null;
+  }
+
+  /**
+   * Record the decision trace for a session. Called at the end of handleMessage
+   * so agent_explain can surface it on the next turn.
+   */
+  _recordTrace(sessionId, message, intent, toolResults) {
+    this.lastIntents.set(sessionId, intent ? JSON.parse(JSON.stringify(intent)) : null);
+    this.lastTraces.set(sessionId, {
+      message,
+      startedAt: new Date().toISOString(),
+      steps: toolResults.map((t) => ({
+        tool: t.tool,
+        ok: !!t.result.ok,
+        summary: t.result.summary || null,
+        error: t.result.error || null,
+      })),
+    });
   }
 
   defaultSystemPrompt() {
@@ -45,6 +88,9 @@ export class AgentOrchestrator {
     if (augments.summary) parts.push(`\n[Session Memory] ${augments.summary}`);
     if (augments.currentGameId) parts.push(`\n[Current Focus Game] gameId=${augments.currentGameId}`);
     if (augments.availableGenres) parts.push(`\n[Available Genres] ${augments.availableGenres.join(', ')}`);
+    // Surface any active multi-turn plan so the agent continues the next
+    // pending step rather than treating each message in isolation.
+    if (augments.planStatus) parts.push(`\n[Active Plan] ${augments.planStatus}`);
     // Inject cross-session preference profile so the agent personalizes
     // suggestions, tone, and difficulty defaults without extra prompting.
     const prefSummary = this.artifactMemory?.preferenceSummary?.();
@@ -79,6 +125,14 @@ export class AgentOrchestrator {
     const history = this.memory.get(sessionId);
     const session = this.memory.getSession(sessionId);
     const focusGameId = this.detectFocusGameId(session);
+
+    // Multi-turn plan detection: when the user opens a long-horizon goal
+    // (e.g. "创建游戏然后加主题然后发布"), capture the plan so each
+    // subsequent turn knows which step is pending.
+    const detectedPlan = this.planMemory.detectPlan(sessionId, message);
+    if (detectedPlan && emit) {
+      emit({ type: 'plan_detected', plan: { id: detectedPlan.id, steps: detectedPlan.steps.map((s) => s.label) } });
+    }
 
     // Fast path intent detection
     const ruleIntent = this.planner.detectIntent(message, history);
@@ -206,6 +260,7 @@ export class AgentOrchestrator {
         summary: session.summary,
         currentGameId: lastGameId,
         availableGenres: ALL_GENRES,
+        planStatus: this.planMemory.statusLine(sessionId),
       });
 
       const pick = await this.provider.pickTool({
@@ -337,6 +392,9 @@ export class AgentOrchestrator {
     }
     if (emit) emit({ type: 'reply', reply });
 
+    // Persist the decision trace for agent_explain introspection.
+    this._recordTrace(sessionId, message, intent, toolResults);
+
     const toolTrace = toolResults.map((t) => ({ tool: t.tool, ok: t.result.ok }));
     const meta = { intent, toolTrace, editorActions };
     if (lastGameId) meta.currentGameId = lastGameId;
@@ -386,6 +444,9 @@ export class AgentOrchestrator {
       }
       if (raw.ok === undefined) raw.ok = true;
       if (!raw.summary) raw.summary = raw.ok ? `Executed ${toolName}` : `${toolName} failed`;
+      // Mark the corresponding step in any active multi-turn plan as completed
+      // so the plan tracker reflects progress across turns.
+      if (raw.ok) this.planMemory?.markStepCompleted(sessionId, toolName);
       return raw;
     } catch (err) {
       return { ok: false, error: err.message || String(err), summary: `${toolName} error` };
