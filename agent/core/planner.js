@@ -52,6 +52,12 @@ export class TaskPlanner {
       { name: 'import_game', pattern: /(导入|import|恢复.*游戏|上传.*游戏包|加载.*bundle|从.*包.*创建)/i, args: ['bundle', 'newName'] },
       // Preview snapshot capture for gallery / cover art
       { name: 'screenshot_game', pattern: /(截图|截个图|截.图|预览图|封面|缩略图|screenshot|snapshot|poster|cover|海报)/i, args: ['gameId', 'label'] },
+      // AI-native player behavior simulation & telemetry
+      { name: 'game_analytics', pattern: /(分析|analytics|留存|retention|流失|玩家行为|funnel|漏斗|会话时长|难度曲线|drop.?off|玩家数据)/i, args: ['gameId', 'seed', 'useLlm'] },
+      // Version snapshot timeline & rollback
+      { name: 'version_history', pattern: /(版本|快照|snapshot|历史版本|回滚|restore|时光机|timeline|版本对比|版本历史)/i, args: ['gameId', 'action', 'snapshotId', 'label'] },
+      // Agent introspection: explain last decision & reasoning
+      { name: 'agent_explain', pattern: /(为什么|why did you|解释|explain|推理过程|reasoning|你是怎么|如何决策|你为什么|刚才.*决策|你.*怎么.*想)/i, args: ['sessionId', 'scope'] },
 
       // High specificity quality + community tools (BEFORE help to avoid
       // false-positive on keywords like "功能" inside install/asset requests)
@@ -208,6 +214,7 @@ export class TaskPlanner {
       'generate_npc', 'generate_asset', 'procedural_level', 'rapid_iterate',
       'configure_game_meta', 'save_game', 'delete_game', 'update_basic_info',
       'remix_game', 'export_game', 'screenshot_game',
+      'game_analytics', 'version_history',
     ];
     if (targets.includes(intentName)) {
       const idMatch = message.match(/game[:\s#_-]*([a-zA-Z0-9_-]{6,})/i);
@@ -392,6 +399,32 @@ export class TaskPlanner {
       else if (/节点|node|预设/i.test(message)) args.category = 'nodePreset';
       const qm = message.match(/(?:查找|搜索|query)[：:\s]*([\u4e00-\u9fa5A-Za-z0-9_\- ]{1,40})/);
       if (qm) args.query = qm[1].trim();
+    }
+
+    if (intentName === 'game_analytics') {
+      const sm = message.match(/seed[:=\s]*(\d+)|种子[:为\s]*(\d+)/i);
+      if (sm) args.seed = Number(sm[1] || sm[2]);
+      // Allow user to opt out of LLM suggestions explicitly.
+      if (/不使用.*llm|纯规则|no llm|rule only/i.test(message)) args.useLlm = false;
+    }
+
+    if (intentName === 'version_history') {
+      // Default to snapshot action when none specified.
+      if (/列出|list|查看.*版本|历史|timeline/i.test(message)) args.action = 'list';
+      else if (/回滚|恢复|restore|还原/i.test(message)) args.action = 'restore';
+      else if (/对比|diff|差异/i.test(message)) args.action = 'diff';
+      else args.action = 'snapshot';
+      // Extract snapshot id when present (v_xxx).
+      const sm = message.match(/(v_[a-z0-9_]{4,})/i);
+      if (sm) args.snapshotId = sm[1];
+      // Extract label after "标签" / "叫" / quoted string for snapshot naming.
+      const lm = message.match(/(?:标签|叫|名为|label)[:：\s]*["'「]?\s*([\u4e00-\u9fa5A-Za-z0-9 _\-·]{1,40})/);
+      if (lm) args.label = lm[1].trim();
+    }
+
+    if (intentName === 'agent_explain') {
+      if (/能力|工具列表|capabilities|你能做什么|有哪些工具/i.test(message)) args.scope = 'capabilities';
+      else args.scope = 'last';
     }
 
     return args;
