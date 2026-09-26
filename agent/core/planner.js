@@ -40,6 +40,9 @@ export class TaskPlanner {
       // names from being misclassified as style requests (e.g. "创建视觉小说樱花之约").
       { name: 'create_game', pattern: /(创建|生成|做|create|build|make|新建|开发|设计一款).{0,20}(游戏|game)/i, args: ['name', 'genre'] },
       { name: 'delete_game', pattern: /(删除.*游戏|移除|destroy|delete|remove|drop|清空.*作品|不要了|删掉.*游戏)/i, args: ['gameId', 'confirm'] },
+      // Version snapshot timeline & rollback (before list_games so "列出历史版本"
+      // is not misrouted to the generic list command).
+      { name: 'version_history', pattern: /(版本|快照|snapshot|历史版本|回滚|restore|时光机|timeline|版本对比|版本历史|对比|diff|差异)/i, args: ['gameId', 'action', 'snapshotId', 'label'] },
       { name: 'list_games', pattern: /(有哪些游戏|列出|查看列表|list|show|我的游戏|作品列表).{0,12}(游戏|game|作品|$)/i, args: [] },
       { name: 'save_game', pattern: /(保存|存档|持久化|写入|commit|flush|sync|保存游戏|同步保存)/i, args: ['gameId'] },
       { name: 'update_basic_info', pattern: /(重命名|改名字|改.*名称|切换.*类型|变更.*类型|把.*类型改为|更新.*(基础|信息|描述|名称|分类))/i, args: ['gameId', 'name', 'description', 'genre'] },
@@ -52,12 +55,44 @@ export class TaskPlanner {
       { name: 'import_game', pattern: /(导入|import|恢复.*游戏|上传.*游戏包|加载.*bundle|从.*包.*创建)/i, args: ['bundle', 'newName'] },
       // Preview snapshot capture for gallery / cover art
       { name: 'screenshot_game', pattern: /(截图|截个图|截.图|预览图|封面|缩略图|screenshot|snapshot|poster|cover|海报)/i, args: ['gameId', 'label'] },
+      // Performance profiling (before game_analytics so "性能分析" matches here)
+      { name: 'profile_game', pattern: /(性能|performance|profile|帧率|fps|瓶颈|优化建议|性能分析|性能测试|内存|draw.?call)/i, args: ['gameId', 'duration'] },
       // AI-native player behavior simulation & telemetry
       { name: 'game_analytics', pattern: /(分析|analytics|留存|retention|流失|玩家行为|funnel|漏斗|会话时长|难度曲线|drop.?off|玩家数据)/i, args: ['gameId', 'seed', 'useLlm'] },
-      // Version snapshot timeline & rollback
-      { name: 'version_history', pattern: /(版本|快照|snapshot|历史版本|回滚|restore|时光机|timeline|版本对比|版本历史)/i, args: ['gameId', 'action', 'snapshotId', 'label'] },
       // Agent introspection: explain last decision & reasoning
-      { name: 'agent_explain', pattern: /(为什么|why did you|解释|explain|推理过程|reasoning|你是怎么|如何决策|你为什么|刚才.*决策|你.*怎么.*想)/i, args: ['sessionId', 'scope'] },
+      { name: 'agent_explain', pattern: /(为什么|why did you|解释|explain|推理过程|reasoning|你是怎么|如何决策|你为什么|刚才.*决策|你.*怎么.*想|能力|工具列表|capabilities|有哪些工具|你能做什么)/i, args: ['sessionId', 'scope'] },
+      // Headless gameplay simulation with issue reporting
+      { name: 'play_test', pattern: /(模拟运行|模拟测试|模拟|跑.*测试|play.?test|试运行|试跑|自动测试|压测)/i, args: ['gameId', 'duration', 'seed'] },
+      // Proactive improvement suggestions with one-click follow-ups
+      { name: 'ai_suggest', pattern: /(改进建议|优化建议|给.*建议|suggestions?|有什么.*改进|怎么.*优化|提升.*建议|给我.*点子.*改进)/i, args: ['gameId', 'category'] },
+      // Granular config field read/write by dotted path (before tweak_params so
+      // "把 player.speed 改成 7" routes here instead of the bulk tweak tool)
+      { name: 'edit_config_field', pattern: /(把.{0,12}(?:改成|改为|调成|设为)|设置.{0,8}为|config\.|修改.*(?:字段|值|属性)|读取.*(?:配置|字段))/i, args: ['gameId', 'path', 'value'] },
+      // Natural-language game script section generation
+      { name: 'edit_script', pattern: /(生成.*脚本|写.*脚本|添加.*脚本|脚本.*(?:让|使|实现)|update.*函数|render.*函数|init.*函数|生成.*代码|写.*逻辑|script)/i, args: ['gameId', 'section', 'description'] },
+      // Individual NPC add/update/remove
+      { name: 'manage_npc', pattern: /(加(?:一个|个).*(?:npc|角色|人物)|添加.*npc|新增.*npc|修改.*(?:npc|角色).*(?:对话|属性|名字)|删除.*(?:npc|角色)|移除.*(?:npc|角色))/i, args: ['gameId', 'action', 'npcId', 'name', 'role', 'dialog'] },
+      // Individual asset add/update/remove
+      { name: 'manage_asset', pattern: /(加(?:一个|个).*(?:资产|素材|精灵|ui)|添加.*(?:资产|素材)|新增.*(?:资产|素材)|修改.*(?:资产|素材).*(?:描述|名字)|删除.*(?:资产|素材)|移除.*(?:资产|素材))/i, args: ['gameId', 'action', 'assetId', 'name', 'assetType', 'description'] },
+      // Achievement CRUD
+      { name: 'manage_achievements', pattern: /(成就|achievement|解锁条件|奖杯|勋章|加.*成就|添加.*成就|修改.*成就|删除.*成就|移除.*成就|成就列表)/i, args: ['gameId', 'action', 'achievementId', 'name', 'desc', 'condition', 'icon', 'unlocked'] },
+      // Multi-scene / level management
+      { name: 'manage_scenes', pattern: /(场景|关卡|scene|level|多场景|多关卡|加.*场景|添加.*场景|修改.*场景|删除.*场景|移除.*场景|重排.*场景|场景列表)/i, args: ['gameId', 'action', 'sceneId', 'name', 'sceneType', 'background', 'order'] },
+      // Leaderboard board management (action verbs required to avoid
+      // colliding with explore_community's generic "排行榜" keyword).
+      { name: 'manage_leaderboard', pattern: /(加(?:一个|个).*(?:排行榜|榜单|leaderboard)|添加.*(?:排行榜|榜单)|新增.*(?:排行榜|榜单)|修改.*(?:排行榜|榜单)|删除.*(?:排行榜|榜单)|移除.*(?:排行榜|榜单)|排行榜列表|榜单列表)/i, args: ['gameId', 'action', 'boardId', 'label', 'scoring', 'order'] },
+      // AI-native game localization
+      { name: 'translate_game', pattern: /(翻译|translate|本地化|localization|多语言|语言切换|英文|日语|韩语|法语|德语|西班牙语|葡萄牙语|俄语|阿拉伯语|i18n)/i, args: ['gameId', 'targetLang', 'sourceLang', 'scope'] },
+      // Auto-balance using playtest feedback
+      { name: 'balance_game', pattern: /(平衡|balance|调平衡|自动平衡|难度平衡|数值平衡|平衡测试|平衡调整)/i, args: ['gameId', 'duration', 'seed', 'targetDifficulty'] },
+      // Audio / music / sfx management
+      { name: 'manage_audio', pattern: /(音乐|music|音效|sfx|sound|audio|bgm|背景音乐|加.*音乐|添加.*音乐|加.*音效|添加.*音效|播放.*音乐|播放.*音效)/i, args: ['gameId', 'kind', 'action', 'entryId', 'name', 'mood', 'trigger', 'volume', 'loop', 'order'] },
+      // Story / narrative generation
+      { name: 'generate_story', pattern: /(剧情|故事|story|narrative|叙事|生成.*剧情|生成.*故事|写.*剧情|写.*故事|编.*剧情|编.*故事|剧情大纲)/i, args: ['gameId', 'genre', 'title', 'tone', 'chapters'] },
+      // Script linting / validation
+      { name: 'lint_scripts', pattern: /(检查脚本|lint|脚本检查|代码检查|脚本错误|语法检查|脚本验证|检查.*代码|检查.*脚本)/i, args: ['gameId', 'scope'] },
+      // Runtime preview control
+      { name: 'control_runtime', pattern: /(重启游戏|重新开始|restart|暂停|pause|继续|resume|调速|speed|无敌|god.?mode|上帝模式|生成敌人|spawn.*enemy|触发胜利|触发失败|win|lose)/i, args: ['gameId', 'command', 'speed', 'entity', 'count', 'enabled'] },
 
       // High specificity quality + community tools (BEFORE help to avoid
       // false-positive on keywords like "功能" inside install/asset requests)
@@ -215,6 +250,8 @@ export class TaskPlanner {
       'configure_game_meta', 'save_game', 'delete_game', 'update_basic_info',
       'remix_game', 'export_game', 'screenshot_game',
       'game_analytics', 'version_history',
+      'edit_config_field', 'edit_script', 'manage_npc', 'manage_asset',
+      'play_test', 'ai_suggest',
     ];
     if (targets.includes(intentName)) {
       const idMatch = message.match(/game[:\s#_-]*([a-zA-Z0-9_-]{6,})/i);
@@ -425,6 +462,245 @@ export class TaskPlanner {
     if (intentName === 'agent_explain') {
       if (/能力|工具列表|capabilities|你能做什么|有哪些工具/i.test(message)) args.scope = 'capabilities';
       else args.scope = 'last';
+    }
+
+    if (intentName === 'edit_config_field') {
+      // Explicit dotted path like config.player.speed
+      const dottedMatch = message.match(/(?:config\.)?([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)+)/i);
+      if (dottedMatch) args.path = dottedMatch[1];
+      else {
+        // Inline Chinese field mapping
+        if (/玩家.*速度|速度/.test(message)) args.path = 'player.speed';
+        else if (/玩家.*(?:血量|生命|hp)/i.test(message)) args.path = 'player.hp';
+        else if (/玩家.*(?:伤害|攻击|atk)/i.test(message)) args.path = 'player.atk';
+        else if (/敌人.*速度/.test(message)) args.path = 'enemy.speed';
+        else if (/敌人.*(?:血量|生命|hp)/i.test(message)) args.path = 'enemy.hp';
+        else if (/敌人.*(?:数量|个数|count)/i.test(message)) args.path = 'enemy.count';
+        else if (/重力|gravity/.test(message)) args.path = 'world.gravity';
+      }
+      // Extract numeric value after 改成/改为/调成/设为/为
+      const valMatch = message.match(/(?:改成|改为|调成|设为|设置.*为|为)\s*["']?(-?\d+(?:\.\d+)?)/);
+      if (valMatch) args.value = Number(valMatch[1]);
+    }
+
+    if (intentName === 'edit_script') {
+      if (/update/i.test(message)) args.section = 'update';
+      else if (/render/i.test(message)) args.section = 'render';
+      else if (/init/i.test(message)) args.section = 'init';
+      else if (/input|按键|输入/i.test(message)) args.section = 'onInput';
+      else if (/collision|碰撞/i.test(message)) args.section = 'onCollision';
+      else args.section = 'update';
+      // The whole message (minus trigger words) becomes the description.
+      args.description = message.replace(/(生成|写|添加).*?(脚本|代码|逻辑|函数)|script|让|使|实现/gi, '').trim() || message;
+    }
+
+    if (intentName === 'manage_npc') {
+      if (/删除|移除/i.test(message)) args.action = 'remove';
+      else if (/修改|改/i.test(message)) args.action = 'update';
+      else args.action = 'add';
+      const nm = message.match(/(?:叫|名为|名字)[：:\s]*["'「]?\s*([\u4e00-\u9fa5A-Za-z0-9 _\-·]{1,20})/);
+      if (nm) {
+        let name = nm[1].trim();
+        // Strip the appended " game#id" scoping marker first, then strip
+        // trailing classifier like "的NPC" / "的角色" / "的人物".
+        name = name.replace(/\s+game.*$/i, '').trim();
+        name = name.replace(/的?(?:NPC|角色|人物)$/i, '').trim();
+        if (name) args.name = name;
+      }
+      const roleMatch = message.match(/(商人|铁匠|向导|治疗师|对手|吟游诗人|守卫|小孩|长老|店主|merchant|blacksmith|guide|healer|rival|bard|guard|child|elder|innkeeper)/i);
+      if (roleMatch) args.role = roleMatch[1];
+    }
+
+    if (intentName === 'manage_asset') {
+      if (/删除|移除/i.test(message)) args.action = 'remove';
+      else if (/修改|改/i.test(message)) args.action = 'update';
+      else args.action = 'add';
+      if (/精灵|sprite|图/i.test(message)) args.assetType = 'sprite';
+      else if (/音效|sound|sfx/i.test(message)) args.assetType = 'sound';
+      else if (/音乐|配乐|bgm|music/i.test(message)) args.assetType = 'music';
+      else if (/界面|ui|hud/i.test(message)) args.assetType = 'ui';
+      const nm = message.match(/(?:叫|名为|名字)[：:\s]*["'「]?\s*([\u4e00-\u9fa5A-Za-z0-9 _\-·]{1,20})/);
+      if (nm) args.name = nm[1].trim();
+    }
+
+    if (intentName === 'play_test') {
+      const dm = message.match(/(\d+)\s*(?:秒|s|second)/i);
+      if (dm) args.duration = Math.max(1, Math.min(120, Number(dm[1])));
+      const sm = message.match(/seed[:=\s]*(\d+)|种子[:为\s]*(\d+)/i);
+      if (sm) args.seed = Number(sm[1] || sm[2]);
+    }
+
+    if (intentName === 'ai_suggest') {
+      if (/平衡|数值|balance/i.test(message)) args.category = 'balance';
+      else if (/内容|content/i.test(message)) args.category = 'content';
+      else if (/打磨|品质|polish/i.test(message)) args.category = 'polish';
+      else if (/无障碍|accessibility/i.test(message)) args.category = 'accessibility';
+    }
+
+    // ---- manage_achievements ----
+    if (intentName === 'manage_achievements') {
+      if (/列表|列出|查看|有哪些/i.test(message)) args.action = 'list';
+      else if (/删除|移除/i.test(message)) args.action = 'remove';
+      else if (/修改|更新|改/i.test(message)) args.action = 'update';
+      else args.action = 'add';
+      const nm = message.match(/(?:叫|名为|名字|成就名)[：:\s]*["'「]?\s*([\u4e00-\u9fa5A-Za-z0-9 _\-·]{1,20})/);
+      if (nm) {
+        let name = nm[1].trim();
+        // Strip the appended " game#id" scoping marker first, then strip
+        // trailing classifier like "的成就" / "的奖杯" / "的勋章".
+        name = name.replace(/\s+game.*$/i, '').trim();
+        name = name.replace(/的?(?:成就|奖杯|勋章)$/i, '').trim();
+        if (name) args.name = name;
+      }
+      const descM = message.match(/(?:描述|说明|desc)[：:\s]*(.+?)(?:[，。；\n]|$)/);
+      if (descM) args.desc = descM[1].trim();
+      const condM = message.match(/(?:条件|condition)[：:\s]*(.+?)(?:[，。；\n]|$)/);
+      if (condM) args.condition = condM[1].trim();
+      if (/解锁|unlocked|已达成/i.test(message)) args.unlocked = true;
+    }
+
+    // ---- manage_scenes ----
+    if (intentName === 'manage_scenes') {
+      if (/列表|列出|查看|有哪些/i.test(message)) args.action = 'list';
+      else if (/重排|排序|reorder/i.test(message)) args.action = 'reorder';
+      else if (/删除|移除/i.test(message)) args.action = 'remove';
+      else if (/修改|更新|改/i.test(message)) args.action = 'update';
+      else args.action = 'add';
+      const nm = message.match(/(?:场景|关卡)(?:名|名字|名称)?[：:\s]*["'「]?\s*([\u4e00-\u9fa5A-Za-z0-9 _\-·]{1,20})/);
+      if (nm) {
+        let name = nm[1].trim().replace(/\s+game.*$/i, '').trim();
+        if (name) args.name = name;
+      }
+      if (/菜单|menu/i.test(message)) args.sceneType = 'menu';
+      else if (/boss|首领/i.test(message)) args.sceneType = 'boss';
+      else if (/过场|剧情|cutscene/i.test(message)) args.sceneType = 'cutscene';
+      else if (/商店|shop/i.test(message)) args.sceneType = 'shop';
+      else if (/胜利|victory/i.test(message)) args.sceneType = 'victory';
+      else if (/结束|game.?over/i.test(message)) args.sceneType = 'gameover';
+      else if (args.action === 'add') args.sceneType = 'level';
+    }
+
+    // ---- manage_leaderboard ----
+    if (intentName === 'manage_leaderboard') {
+      if (/列表|列出|查看|有哪些/i.test(message)) args.action = 'list';
+      else if (/删除|移除/i.test(message)) args.action = 'remove';
+      else if (/修改|更新|改/i.test(message)) args.action = 'update';
+      else args.action = 'add';
+      const lb = message.match(/(?:排行榜|榜单)(?:名|名字|名称)?[：:\s]*["'「]?\s*([\u4e00-\u9fa5A-Za-z0-9 _\-·]{1,20})/);
+      if (lb) {
+        let label = lb[1].trim().replace(/\s+game.*$/i, '').trim();
+        if (label) args.label = label;
+      }
+      if (/时间|time|用时/i.test(message)) args.scoring = 'time';
+      else if (/胜利|胜场|wins/i.test(message)) args.scoring = 'wins';
+      else args.scoring = 'score';
+    }
+
+    // ---- translate_game ----
+    if (intentName === 'translate_game') {
+      const langMap = {
+        '英文': 'en', '英语': 'en', 'english': 'en',
+        '日文': 'ja', '日语': 'ja', '日本語': 'ja', 'japanese': 'ja',
+        '韩文': 'ko', '韩语': 'ko', '한국어': 'ko', 'korean': 'ko',
+        '西班牙': 'es', '西班牙语': 'es', 'spanish': 'es',
+        '法文': 'fr', '法语': 'fr', 'french': 'fr',
+        '德文': 'de', '德语': 'de', 'german': 'de',
+        '葡萄牙': 'pt', '葡萄牙语': 'pt', 'portuguese': 'pt',
+        '俄文': 'ru', '俄语': 'ru', 'russian': 'ru',
+        '阿拉伯': 'ar', '阿拉伯语': 'ar', 'arabic': 'ar',
+      };
+      for (const [kw, code] of Object.entries(langMap)) {
+        if (new RegExp(kw, 'i').test(message)) { args.targetLang = code; break; }
+      }
+      if (!args.targetLang && /英文|英语|english/i.test(message)) args.targetLang = 'en';
+      if (/全部|所有|all/i.test(message)) args.scope = 'all';
+      else if (/名称|名字|name/i.test(message)) args.scope = 'name';
+      else if (/描述|description/i.test(message)) args.scope = 'description';
+      else if (/npc|角色/i.test(message)) args.scope = 'npcs';
+      else if (/成就|achievement/i.test(message)) args.scope = 'achievements';
+      else if (/剧情|场景|scenario/i.test(message)) args.scope = 'scenario';
+    }
+
+    // ---- balance_game ----
+    if (intentName === 'balance_game') {
+      const dm = message.match(/(\d+)\s*(?:秒|s|second)/i);
+      if (dm) args.duration = Math.max(1, Math.min(120, Number(dm[1])));
+      if (/简单|easy/i.test(message)) args.targetDifficulty = 'easy';
+      else if (/困难|hard/i.test(message)) args.targetDifficulty = 'hard';
+      else args.targetDifficulty = 'normal';
+    }
+
+    // ---- manage_audio ----
+    if (intentName === 'manage_audio') {
+      if (/音效|sfx|sound\b/i.test(message) && !/背景音乐|bgm|music/i.test(message)) args.kind = 'sfx';
+      else args.kind = 'music';
+      if (/列表|列出|查看/i.test(message)) args.action = 'list';
+      else if (/重排|排序/i.test(message)) args.action = 'reorder';
+      else if (/播放|play/i.test(message)) args.action = 'play';
+      else if (/删除|移除/i.test(message)) args.action = 'remove';
+      else if (/修改|更新|改\s*(?:音量|名字|描述)/i.test(message)) args.action = 'update';
+      else args.action = 'add';
+      const nm = message.match(/(?:音乐|音效|曲目|声音)(?:名|名字|名称)?[：:\s]*["'「]?\s*([\u4e00-\u9fa5A-Za-z0-9 _\-·]{1,20})/);
+      if (nm) {
+        let name = nm[1].trim().replace(/\s+game.*$/i, '').trim();
+        if (name) args.name = name;
+      }
+      const moodMap = { '史诗': 'epic', '平静': 'calm', '紧张': 'tense', '欢快': 'happy', '悲伤': 'sad', '神秘': 'mysterious', '战斗': 'battle' };
+      for (const [kw, v] of Object.entries(moodMap)) if (new RegExp(kw, 'i').test(message)) { args.mood = v; break; }
+      const volM = message.match(/音量[：:\s]*(\d+(?:\.\d+)?)/);
+      if (volM) args.volume = Number(volM[1]);
+      if (/循环|loop/i.test(message)) args.loop = true;
+    }
+
+    // ---- generate_story ----
+    if (intentName === 'generate_story') {
+      const chM = message.match(/(\d+)\s*(?:章|章节|chapter)/i);
+      if (chM) args.chapters = Math.max(1, Math.min(8, Number(chM[1])));
+      const toneMap = { '史诗': 'epic', '黑暗': 'dark', '轻松': 'light', '神秘': 'mysterious', '幽默': 'humorous' };
+      for (const [kw, v] of Object.entries(toneMap)) if (new RegExp(kw, 'i').test(message)) { args.tone = v; break; }
+      const titleM = message.match(/(?:标题|题目|title)[：:\s]*["'「]?\s*([^\n，。；]{2,30})/);
+      if (titleM) args.title = titleM[1].trim();
+    }
+
+    // ---- profile_game ----
+    if (intentName === 'profile_game') {
+      const dm = message.match(/(\d+)\s*(?:秒|s|second)/i);
+      if (dm) args.duration = Math.max(1, Math.min(120, Number(dm[1])));
+    }
+
+    // ---- lint_scripts ----
+    if (intentName === 'lint_scripts') {
+      if (/dsl|指令|模板/i.test(message)) args.scope = 'dsl';
+      else if (/section|代码段|生成/i.test(message)) args.scope = 'sections';
+      else args.scope = 'all';
+    }
+
+    // ---- control_runtime ----
+    if (intentName === 'control_runtime') {
+      if (/重启|重新开始|restart/i.test(message)) args.command = 'restart';
+      else if (/暂停|pause/i.test(message)) args.command = 'pause';
+      else if (/继续|resume/i.test(message)) args.command = 'resume';
+      else if (/调速|速度|speed/i.test(message)) {
+        args.command = 'speed';
+        const sm = message.match(/(\d+(?:\.\d+)?)\s*x/i);
+        if (sm) args.speed = Number(sm[1]);
+      } else if (/生成|spawn/i.test(message)) {
+        args.command = 'spawn';
+        if (/boss/i.test(message)) args.entity = 'boss';
+        else if (/道具|powerup|补给/i.test(message)) args.entity = 'powerup';
+        else if (/障碍|obstacle/i.test(message)) args.entity = 'obstacle';
+        else args.entity = 'enemy';
+        const cm = message.match(/(\d+)\s*(?:个|只)/);
+        if (cm) args.count = Number(cm[1]);
+      } else if (/无敌|invincible/i.test(message)) {
+        args.command = 'invincible';
+        args.enabled = !/关闭|取消|关/i.test(message);
+      } else if (/上帝|god.?mode/i.test(message)) {
+        args.command = 'godmode';
+        args.enabled = !/关闭|取消|关/i.test(message);
+      } else if (/胜利|win/i.test(message)) args.command = 'win';
+      else if (/失败|lose/i.test(message)) args.command = 'lose';
+      else args.command = 'restart';
     }
 
     return args;
