@@ -4,6 +4,7 @@ import { SelfReflector } from './reflector.js';
 import { PlanMemory } from './planMemory.js';
 import { LLMProvider } from '../providers/llm.js';
 import { listGenres } from '../templates/gameTemplates.js';
+import { UndoManager, MODIFYING_TOOLS } from './undoManager.js';
 
 const ALL_GENRES = listGenres().map((g) => g.key);
 
@@ -18,7 +19,7 @@ const ALL_GENRES = listGenres().map((g) => g.key);
  * frontend by the top-level response (editorActions[]).
  */
 export class AgentOrchestrator {
-  constructor({ memory, artifactMemory, reflector, tools, planner, provider, systemPrompt, maxSteps = 6, planMemory } = {}) {
+  constructor({ memory, artifactMemory, reflector, tools, planner, provider, systemPrompt, maxSteps = 6, planMemory, gameService } = {}) {
     this.memory = memory || new MemoryStore();
     this.artifactMemory = artifactMemory || new ArtifactMemory();
     this.reflector = reflector || new SelfReflector({ provider });
@@ -27,6 +28,12 @@ export class AgentOrchestrator {
     this.provider = provider || new LLMProvider();
     this.systemPrompt = systemPrompt || this.defaultSystemPrompt();
     this.maxSteps = maxSteps;
+    // Game service reference for undo snapshots. Set here so runTool can
+    // fetch the current game state before a modifying tool executes.
+    this.gameService = gameService || null;
+    // Undo/redo snapshot manager. Before any modifying tool runs, a snapshot
+    // of the current game state is pushed so the user can revert via undo_redo.
+    this.undoManager = new UndoManager();
     // Multi-turn plan tracker: detects long-horizon goals spanning several
     // messages and surfaces pending steps in the system prompt so the agent
     // stays focused on the user's original intent across turns.
@@ -144,6 +151,8 @@ export class AgentOrchestrator {
     if (game.story) bits.push(`story=${game.story.chapters?.length || 0}ch`);
     if (game.progression) bits.push(`progression=${game.progression.levelCount || 0}lv`);
     if (game.lastAccessibility?.grade) bits.push(`a11y=${game.lastAccessibility.grade}`);
+    if (game.lastFunFactor?.grade) bits.push(`fun=${game.lastFunFactor.grade}(${game.lastFunFactor.total})`);
+    if (game.tutorial?.steps?.length) bits.push(`tutorial=${game.tutorial.steps.length}steps`);
     if (Array.isArray(game.checkpoints) && game.checkpoints.length) bits.push(`checkpoints=${game.checkpoints.length}`);
     if (game.theme) bits.push(`theme=${game.theme}`);
     if (game.scenario) bits.push(`scenario=${game.scenario}`);
@@ -194,12 +203,14 @@ export class AgentOrchestrator {
     let lastToolName = null;
     let lastGameId = ruleIntent.args?.gameId || focusGameId;
 
-    // Build compound plan with create_game re-prioritization logic
+    // Build compound plan with create_game re-prioritization logic.
+    // Skip the override when the planner already chose a more specific creation
+    // tool (generate_game_template) so template requests keep their richer path.
     const planTools = [];
     let fastPathToolName = this.tools.has(toolName) && this.hasSufficientArgs(toolName, ruleIntent.args) ? toolName : null;
-    if ((/创建|生成|create|build|new|make/i.test(message)) && this.tools.has('create_game')) {
+    if ((/创建|生成|create|build|new|make/i.test(message)) && this.tools.has('create_game') && ruleIntent.name !== 'generate_game_template') {
       const createIntent = this.planner.extractArgs ? this.planner.detectIntent(message, history) : null;
-      if (createIntent?.name !== 'create_game') {
+      if (createIntent?.name !== 'create_game' && createIntent?.name !== 'generate_game_template') {
         const createArgs = (this.planner.extractArgs && this.planner.extractArgs('create_game', message, history)) || {};
         if ((createArgs.name || createArgs.genre)) {
           fastPathToolName = 'create_game';
@@ -373,8 +384,16 @@ export class AgentOrchestrator {
 
     // ---- Step 3: Self-reflection critique (optional rapid-iteration follow-up) ----
     let critique = null;
+    // Trigger self-reflection after creation/edit tools AND after the richer
+    // creation/analysis paths so the new quality gates (tutorial / audio /
+    // achievements / fun-factor / accessibility / progression / script-lint)
+    // get a chance to surface follow-up suggestions.
     const shouldReflect = lastGameId && (
-      toolResults.some((t) => ['create_game', 'edit_game', 'tweak_params', 'apply_style_theme', 'apply_scenario'].includes(t.tool) && t.result.ok)
+      toolResults.some((t) => [
+        'create_game', 'generate_game_template', 'edit_game', 'tweak_params',
+        'apply_style_theme', 'apply_scenario', 'analyze_fun_factor',
+        'edit_script', 'manage_audio', 'manage_achievements', 'manage_scenes',
+      ].includes(t.tool) && t.result.ok)
     );
     if (shouldReflect && this.reflector) {
       try {
@@ -496,6 +515,25 @@ export class AgentOrchestrator {
 
   async runTool(toolName, args, context, sessionId) {
     try {
+      // Capture undo snapshot before modifying tools so the user can revert.
+      // Skips undo_redo itself (it manages the stack) and create_game (no
+      // prior state to snapshot). Uses the game id from args or the session's
+      // focus game to fetch the current state.
+      if (MODIFYING_TOOLS.has(toolName) && toolName !== 'create_game') {
+        const gid = args?.gameId || this.detectFocusGameId(this.memory.getSession(sessionId));
+        if (gid && this.gameService) {
+          try {
+            const snap = await this.gameService.getById(gid);
+            if (snap) {
+              const clone = JSON.parse(JSON.stringify(snap));
+              clone.__label = toolName;
+              clone.__action = toolName;
+              clone.__ts = Date.now();
+              this.undoManager.pushSnapshot(gid, clone);
+            }
+          } catch (_) { /* snapshot failure should not block the tool */ }
+        }
+      }
       const raw = await this.tools.invoke(toolName, args, { ...context, sessionId });
       if (!raw || typeof raw !== 'object') {
         return { ok: false, error: 'Tool returned invalid shape', summary: `Failed ${toolName}` };
@@ -513,16 +551,17 @@ export class AgentOrchestrator {
 
   hasSufficientArgs(toolName, args = {}) {
     if (toolName === 'create_game') return !!args.name || !!args.genre;
+    if (toolName === 'generate_game_template') return !!args.genre || !!args.name;
     if (toolName === 'remix_game') return !!(args.shareCode || args.sourceGameId || args.gameId);
     if (toolName === 'dispatch_crew') return !!args.brief || !!args.genre || true;
     if (toolName === 'edit_game') return !!args.gameId;
-    if (['debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state'].includes(toolName)) return !!args.gameId;
+    if (['debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree'].includes(toolName)) return !!args.gameId;
     if (['list_games','generate_config','help','creative_ideate'].includes(toolName)) return true;
     return !!args;
   }
 
   toolNeedsGameId(toolName) {
-    return ['edit_game','debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state'].includes(toolName);
+    return ['edit_game','debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree'].includes(toolName);
   }
 
   argsProgressed(next, prev) {
@@ -539,7 +578,7 @@ export class AgentOrchestrator {
 
   isSufficientResult(toolName, r) {
     if (!r.ok) return true;
-    if (['create_game','publish_game','run_game','debug_game','creative_ideate','rapid_iterate','generate_npc','generate_asset','procedural_level','configure_game_meta','remix_game','dispatch_crew','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state'].includes(toolName)) return true;
+    if (['create_game','generate_game_template','publish_game','run_game','debug_game','creative_ideate','rapid_iterate','generate_npc','generate_asset','procedural_level','configure_game_meta','remix_game','dispatch_crew','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree'].includes(toolName)) return true;
     return false;
   }
 
