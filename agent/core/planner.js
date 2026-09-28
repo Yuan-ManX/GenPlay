@@ -38,8 +38,14 @@ export class TaskPlanner {
       // ---- CRUD & meta info first - user intent to CREATE is never ambiguous,
       // and ordering create_game BEFORE apply_style_theme avoids Sakura-themed
       // names from being misclassified as style requests (e.g. "创建视觉小说樱花之约").
+      // Game template (BEFORE create_game so "模板" requests use the richer path)
+      { name: 'generate_game_template', pattern: /(模板|template|快速创建|快速开始|预设游戏|套用模板|从模板)/i, args: ['genre', 'name', 'difficulty'] },
       { name: 'create_game', pattern: /(创建|生成|做|create|build|make|新建|开发|设计一款).{0,20}(游戏|game)/i, args: ['name', 'genre'] },
       { name: 'delete_game', pattern: /(删除.*游戏|移除|destroy|delete|remove|drop|清空.*作品|不要了|删掉.*游戏)/i, args: ['gameId', 'confirm'] },
+      // Undo / redo (BEFORE version_history so "撤销/重做" doesn't get caught
+      // by the version-snapshot "回滚" keyword). Undo/redo is about immediate
+      // action revert, while version_history is for labeled checkpoint rollback.
+      { name: 'undo_redo', pattern: /(撤销|undo|重做|redo|回退.*操作|撤回)/i, args: ['gameId', 'action'] },
       // Version snapshot timeline & rollback (before list_games so "列出历史版本"
       // is not misrouted to the generic list command).
       { name: 'version_history', pattern: /(版本|快照|snapshot|历史版本|回滚|restore|时光机|timeline|版本对比|版本历史|对比|diff|差异)/i, args: ['gameId', 'action', 'snapshotId', 'label'] },
@@ -61,6 +67,8 @@ export class TaskPlanner {
       { name: 'profile_game', pattern: /(性能|performance|profile|帧率|fps|瓶颈|优化建议|性能分析|性能测试|内存|draw.?call)/i, args: ['gameId', 'duration'] },
       // Difficulty / progression design (before game_analytics so "难度曲线" matches here)
       { name: 'design_progression', pattern: /(进度设计|关卡设计|难度曲线|progression|design.*level|设计.*关|关卡.*难度|boss.*安排|节奏设计|升级曲线|成长曲线)/i, args: ['gameId', 'levels', 'curve', 'genre'] },
+      // Fun factor analysis (before game_analytics so "趣味" matches here)
+      { name: 'analyze_fun_factor', pattern: /(趣味|fun.*factor|好玩吗|趣味评估|趣味分析|趣味度|游戏评估|fun.*score|吸引力)/i, args: ['gameId'] },
       // AI-native player behavior simulation & telemetry
       { name: 'game_analytics', pattern: /(分析|analytics|留存|retention|流失|玩家行为|funnel|漏斗|会话时长|drop.?off|玩家数据)/i, args: ['gameId', 'seed', 'useLlm'] },
       // Agent introspection: explain last decision & reasoning
@@ -93,12 +101,20 @@ export class TaskPlanner {
       { name: 'manage_audio', pattern: /(音乐|music|音效|sfx|sound|audio|bgm|背景音乐|加.*音乐|添加.*音乐|加.*音效|添加.*音效|播放.*音乐|播放.*音效)/i, args: ['gameId', 'kind', 'action', 'entryId', 'name', 'mood', 'trigger', 'volume', 'loop', 'order'] },
       // Story / narrative generation
       { name: 'generate_story', pattern: /(剧情|故事|story|narrative|叙事|生成.*剧情|生成.*故事|写.*剧情|写.*故事|编.*剧情|编.*故事|剧情大纲)/i, args: ['gameId', 'genre', 'title', 'tone', 'chapters'] },
+      // Dialogue tree generation (BEFORE install_snippet which also matches "对话树").
+      // This tool generates branching dialogue; install_snippet installs a prefab.
+      { name: 'generate_dialogue_tree', pattern: /(生成.*对话树|对话树.*生成|分支对话|对白分支|剧情分支|选项.*对话|dialogue.*tree|生成.*分支.*对话|多结局.*对话)/i, args: ['gameId', 'character', 'topic', 'branches', 'depth', 'title'] },
+      // Music composition (BEFORE manage_audio so "生成背景音乐/作曲" routes here,
+      // while "添加音乐/播放音乐" still routes to manage_audio).
+      { name: 'compose_music', pattern: /(作曲|生成.*背景音乐|生成.*音乐|compose.*music|配乐|自动配乐|原创.*音乐|程序化.*音乐)/i, args: ['gameId', 'moods', 'mood', 'seed', 'bars', 'rootMidi'] },
       // Script linting / validation
       { name: 'lint_scripts', pattern: /(检查脚本|lint|脚本检查|代码检查|脚本错误|语法检查|脚本验证|检查.*代码|检查.*脚本)/i, args: ['gameId', 'scope'] },
       // Runtime preview control
       { name: 'control_runtime', pattern: /(重启游戏|重新开始|restart|暂停|pause|继续|resume|调速|speed|无敌|god.?mode|上帝模式|生成敌人|spawn.*enemy|触发胜利|触发失败|win|lose)/i, args: ['gameId', 'command', 'speed', 'entity', 'count', 'enabled'] },
       // Accessibility audit
       { name: 'audit_accessibility', pattern: /(无障碍|accessibility|可访问|对比度|色盲|color.?blind|字幕|subtitle|键盘.*操作|可玩|适配)/i, args: ['gameId', 'focus'] },
+      // Tutorial / onboarding generation
+      { name: 'generate_tutorial', pattern: /(教程|tutorial|新手引导|教学|onboarding|入门引导|操作说明|引导步骤)/i, args: ['gameId', 'steps', 'style'] },
 
       // High specificity quality + community tools (BEFORE help to avoid
       // false-positive on keywords like "功能" inside install/asset requests)
@@ -248,6 +264,8 @@ export class TaskPlanner {
     // Game ID extraction for all game-targeted intents.
     // Covers every tool that operates on an existing game so users can omit
     // explicit IDs when chatting while a game is already in-session.
+    // Kept in sync with orchestrator.toolNeedsGameId so planner extraction
+    // never misses a tool that the orchestrator expects to receive a gameId.
     const targets = [
       'edit_game', 'debug_game', 'run_game', 'publish_game', 'describe_game',
       'generate_config', 'tweak_params', 'apply_scenario', 'apply_style_theme',
@@ -258,9 +276,18 @@ export class TaskPlanner {
       'game_analytics', 'version_history',
       'edit_config_field', 'edit_script', 'manage_npc', 'manage_asset',
       'play_test', 'ai_suggest',
+      'manage_achievements', 'manage_scenes', 'manage_leaderboard',
+      'translate_game', 'balance_game', 'manage_audio', 'generate_story',
+      'profile_game', 'lint_scripts', 'control_runtime',
+      'audit_accessibility', 'design_progression', 'checkpoint_state',
+      'analyze_fun_factor', 'generate_tutorial',
+      'undo_redo', 'compose_music', 'generate_dialogue_tree',
     ];
     if (targets.includes(intentName)) {
-      const idMatch = message.match(/game[:\s#_-]*([a-zA-Z0-9_-]{6,})/i);
+      // Match both English "game g_xxx" and Chinese "游戏 g_xxx" formats so
+      // users referencing a game by ID in their native language are routed
+      // correctly without falling through to the LLM fallback loop.
+      const idMatch = message.match(/(?:game|游戏)[:\s#_-]*([a-zA-Z0-9_-]{6,})/i);
       const shortIdMatch = message.match(/[#]([a-zA-Z0-9_-]{4,})/);
       if (idMatch) args.gameId = idMatch[1];
       else if (shortIdMatch) args.gameId = shortIdMatch[1];
@@ -738,6 +765,35 @@ export class TaskPlanner {
       else args.action = 'save';
       const nm = message.match(/(?:名为|叫|命名为)?[“"']([^"”']+)[”"']/);
       if (nm) args.name = nm[1];
+    }
+
+    // ---- generate_game_template ----
+    if (intentName === 'generate_game_template') {
+      if (/射击|shooter/i.test(message)) args.genre = 'shooter';
+      else if (/平台|platform/i.test(message)) args.genre = 'platformer';
+      else if (/rpg|角色/i.test(message)) args.genre = 'rpg';
+      else if (/解谜|puzzle/i.test(message)) args.genre = 'puzzle';
+      else if (/塔防|tower/i.test(message)) args.genre = 'tower';
+      else if (/肉鸽|roguelike/i.test(message)) args.genre = 'roguelike';
+      else if (/赛车|racing/i.test(message)) args.genre = 'racing';
+      else if (/节奏|rhythm/i.test(message)) args.genre = 'rhythm';
+      if (/简单|easy/i.test(message)) args.difficulty = 'easy';
+      else if (/困难|hard/i.test(message)) args.difficulty = 'hard';
+      else args.difficulty = 'normal';
+      const nm2 = message.match(/(?:名为|叫|命名)[\""]?([^\""\s，。]+)[\""]?/);
+      if (nm2) args.name = nm2[1];
+    }
+
+    // ---- analyze_fun_factor ----
+    // (no extra args needed beyond gameId)
+
+    // ---- generate_tutorial ----
+    if (intentName === 'generate_tutorial') {
+      const sm = message.match(/(\d+)\s*步/);
+      if (sm) args.steps = Number(sm[1]);
+      if (/极简|minimal/i.test(message)) args.style = 'minimal';
+      else if (/情境|contextual/i.test(message)) args.style = 'contextual';
+      else args.style = 'guided';
     }
 
     return args;
