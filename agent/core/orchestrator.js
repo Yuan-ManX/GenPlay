@@ -88,6 +88,13 @@ export class AgentOrchestrator {
     if (augments.summary) parts.push(`\n[Session Memory] ${augments.summary}`);
     if (augments.currentGameId) parts.push(`\n[Current Focus Game] gameId=${augments.currentGameId}`);
     if (augments.availableGenres) parts.push(`\n[Available Genres] ${augments.availableGenres.join(', ')}`);
+    // Compact digest of the focused game's actual state so the LLM reasons
+    // about real numbers instead of guessing. Genre, key config values,
+    // NPC/asset counts, and active theme/scenario are included.
+    if (augments.game) {
+      const digest = this._gameStateDigest(augments.game);
+      if (digest) parts.push(`\n[Game State] ${digest}`);
+    }
     // Surface any active multi-turn plan so the agent continues the next
     // pending step rather than treating each message in isolation.
     if (augments.planStatus) parts.push(`\n[Active Plan] ${augments.planStatus}`);
@@ -98,6 +105,49 @@ export class AgentOrchestrator {
     const cc = this.artifactMemory?.creativityContext?.();
     if (cc?.favoriteGenres?.length) parts.push(`\n[User Taste] favorite genres: ${cc.favoriteGenres.join(', ')}; total creations: ${cc.totalGames}`);
     return parts.join('\n');
+  }
+
+  /**
+   * Build a compact, single-line digest of a game's current state for the
+   * system prompt. Includes genre, key config numbers, NPC/asset counts,
+   * and active theme/scenario. Returns null when the game is missing.
+   */
+  _gameStateDigest(game) {
+    if (!game || typeof game !== 'object') return null;
+    const cfg = game.config || {};
+    const p = cfg.player || {};
+    const e = cfg.enemy || {};
+    const bits = [];
+    bits.push(`genre=${game.genre || '?'}`);
+    if (typeof p.speed === 'number') bits.push(`player.speed=${p.speed}`);
+    if (typeof p.hp === 'number') bits.push(`player.hp=${p.hp}`);
+    if (typeof p.atk === 'number') bits.push(`player.atk=${p.atk}`);
+    if (typeof e.speed === 'number') bits.push(`enemy.speed=${e.speed}`);
+    if (typeof e.hp === 'number') bits.push(`enemy.hp=${e.hp}`);
+    if (typeof e.count === 'number') bits.push(`enemy.count=${e.count}`);
+    const npcCount = Array.isArray(game.npcs) ? game.npcs.length : 0;
+    const assetCount = Array.isArray(game.assets) ? game.assets.length : 0;
+    const sceneCount = Array.isArray(game.scenes) ? game.scenes.length : 0;
+    const meta = game.meta || {};
+    const achCount = Array.isArray(meta.achievements) ? meta.achievements.length : 0;
+    const lbCount = Array.isArray(meta.leaderboards) ? meta.leaderboards.length : 0;
+    const audio = game.audio || {};
+    const musicCount = Array.isArray(audio.playlist) ? audio.playlist.length : 0;
+    const sfxCount = Array.isArray(audio.sfx) ? audio.sfx.length : 0;
+    bits.push(`npcs=${npcCount}`);
+    bits.push(`assets=${assetCount}`);
+    if (sceneCount) bits.push(`scenes=${sceneCount}`);
+    if (achCount) bits.push(`achievements=${achCount}`);
+    if (lbCount) bits.push(`leaderboards=${lbCount}`);
+    if (musicCount) bits.push(`music=${musicCount}`);
+    if (sfxCount) bits.push(`sfx=${sfxCount}`);
+    if (game.story) bits.push(`story=${game.story.chapters?.length || 0}ch`);
+    if (game.progression) bits.push(`progression=${game.progression.levelCount || 0}lv`);
+    if (game.lastAccessibility?.grade) bits.push(`a11y=${game.lastAccessibility.grade}`);
+    if (Array.isArray(game.checkpoints) && game.checkpoints.length) bits.push(`checkpoints=${game.checkpoints.length}`);
+    if (game.theme) bits.push(`theme=${game.theme}`);
+    if (game.scenario) bits.push(`scenario=${game.scenario}`);
+    return bits.join(', ');
   }
 
   detectFocusGameId(session) {
@@ -248,7 +298,7 @@ export class AgentOrchestrator {
           !this._allCompoundBucketsCovered(message, toolResults.map((t) => t.tool));
         if (last.result.ok && !hasCompoundRemainder && (
             this.isSufficientResult(last.tool, last.result) ||
-            ['tweak_params','apply_style_theme','apply_scenario','view_code','debug_with_diffs','publish_game','describe_game','debug_game','run_game','creative_ideate','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate'].includes(last.tool))) {
+            ['tweak_params','apply_style_theme','apply_scenario','view_code','debug_with_diffs','publish_game','describe_game','debug_game','run_game','creative_ideate','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest'].includes(last.tool))) {
           break;
         }
       }
@@ -261,6 +311,7 @@ export class AgentOrchestrator {
         currentGameId: lastGameId,
         availableGenres: ALL_GENRES,
         planStatus: this.planMemory.statusLine(sessionId),
+        game: gameSnap,
       });
 
       const pick = await this.provider.pickTool({
@@ -364,6 +415,7 @@ export class AgentOrchestrator {
         critique,
         fallbackHistory: loopHistory.slice(-8),
         sessionSummary: session.summary,
+        sessionId,
       };
       const sys = this._buildReplySystemPrompt(promptCtx);
       const toolDigest = this._toolDigest(toolResults, critique);
@@ -388,6 +440,7 @@ export class AgentOrchestrator {
         critique,
         fallbackHistory: loopHistory.slice(-8),
         sessionSummary: session.summary,
+        sessionId,
       });
     }
     if (emit) emit({ type: 'reply', reply });
@@ -430,6 +483,11 @@ export class AgentOrchestrator {
       if (r.applied) topLevel.crewApplied = r.applied;
       if (r.remixOf) topLevel.remixOf = r.remixOf;
       if (r.sourceTitle) topLevel.remixSourceTitle = r.sourceTitle;
+      // New tool outputs: suggestions, playtest report, script diff, field edit
+      if (r.suggestions) topLevel.suggestions = r.suggestions;
+      if (r.score !== undefined && r.duration !== undefined) topLevel.playtest = { score: r.score, deaths: r.deaths, duration: r.duration, events: r.events, issues: r.issues };
+      if (r.diff) topLevel.diff = r.diff;
+      if (r.path !== undefined) topLevel.configField = { path: r.path, before: r.before, after: r.after };
     }
     if (topLevel.game?.id && !topLevel.currentGameId) topLevel.currentGameId = topLevel.game.id;
     if (emit) emit({ type: 'done', result: topLevel });
@@ -458,13 +516,13 @@ export class AgentOrchestrator {
     if (toolName === 'remix_game') return !!(args.shareCode || args.sourceGameId || args.gameId);
     if (toolName === 'dispatch_crew') return !!args.brief || !!args.genre || true;
     if (toolName === 'edit_game') return !!args.gameId;
-    if (['debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate'].includes(toolName)) return !!args.gameId;
+    if (['debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state'].includes(toolName)) return !!args.gameId;
     if (['list_games','generate_config','help','creative_ideate'].includes(toolName)) return true;
     return !!args;
   }
 
   toolNeedsGameId(toolName) {
-    return ['edit_game','debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate'].includes(toolName);
+    return ['edit_game','debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state'].includes(toolName);
   }
 
   argsProgressed(next, prev) {
@@ -481,7 +539,7 @@ export class AgentOrchestrator {
 
   isSufficientResult(toolName, r) {
     if (!r.ok) return true;
-    if (['create_game','publish_game','run_game','debug_game','creative_ideate','rapid_iterate','generate_npc','generate_asset','procedural_level','configure_game_meta','remix_game','dispatch_crew'].includes(toolName)) return true;
+    if (['create_game','publish_game','run_game','debug_game','creative_ideate','rapid_iterate','generate_npc','generate_asset','procedural_level','configure_game_meta','remix_game','dispatch_crew','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state'].includes(toolName)) return true;
     return false;
   }
 
@@ -674,9 +732,9 @@ export class AgentOrchestrator {
     return lines.join('\n');
   }
 
-  synthesizeReply({ userMessage, intent, toolResults, critique, fallbackHistory, sessionSummary }) {
+  synthesizeReply({ userMessage, intent, toolResults, critique, fallbackHistory, sessionSummary, sessionId }) {
     if (toolResults.length === 0) {
-      const sys = this.buildSystemPrompt({ summary: sessionSummary, availableGenres: ALL_GENRES });
+      const sys = this.buildSystemPrompt({ summary: sessionSummary, availableGenres: ALL_GENRES, planStatus: this.planMemory.statusLine(sessionId) });
       return this.provider.chatSync
         ? this.provider.chatSync({ systemPrompt: sys, history: fallbackHistory, userMessage })
         : this.buildRuleReply(userMessage, intent);
@@ -763,5 +821,8 @@ export class AgentOrchestrator {
 
   reset(sessionId) {
     this.memory.clear(sessionId);
+    this.planMemory?.clear(sessionId);
+    this.lastIntents.delete(sessionId);
+    this.lastTraces.delete(sessionId);
   }
 }
