@@ -44,6 +44,8 @@ export class TaskPlanner {
       // is not misrouted to the generic list command).
       { name: 'version_history', pattern: /(版本|快照|snapshot|历史版本|回滚|restore|时光机|timeline|版本对比|版本历史|对比|diff|差异)/i, args: ['gameId', 'action', 'snapshotId', 'label'] },
       { name: 'list_games', pattern: /(有哪些游戏|列出|查看列表|list|show|我的游戏|作品列表).{0,12}(游戏|game|作品|$)/i, args: [] },
+      // Runtime checkpoint save/load (BEFORE save_game to avoid interception)
+      { name: 'checkpoint_state', pattern: /(检查点|checkpoint|保存.*进度|读档|加载.*存档|保存状态|恢复.*进度|游戏存档点|运行时存档|runtime.*save)/i, args: ['gameId', 'action', 'checkpointId', 'name'] },
       { name: 'save_game', pattern: /(保存|存档|持久化|写入|commit|flush|sync|保存游戏|同步保存)/i, args: ['gameId'] },
       { name: 'update_basic_info', pattern: /(重命名|改名字|改.*名称|切换.*类型|变更.*类型|把.*类型改为|更新.*(基础|信息|描述|名称|分类))/i, args: ['gameId', 'name', 'description', 'genre'] },
       // Remix / fork a community game into a fresh editable draft
@@ -57,8 +59,10 @@ export class TaskPlanner {
       { name: 'screenshot_game', pattern: /(截图|截个图|截.图|预览图|封面|缩略图|screenshot|snapshot|poster|cover|海报)/i, args: ['gameId', 'label'] },
       // Performance profiling (before game_analytics so "性能分析" matches here)
       { name: 'profile_game', pattern: /(性能|performance|profile|帧率|fps|瓶颈|优化建议|性能分析|性能测试|内存|draw.?call)/i, args: ['gameId', 'duration'] },
+      // Difficulty / progression design (before game_analytics so "难度曲线" matches here)
+      { name: 'design_progression', pattern: /(进度设计|关卡设计|难度曲线|progression|design.*level|设计.*关|关卡.*难度|boss.*安排|节奏设计|升级曲线|成长曲线)/i, args: ['gameId', 'levels', 'curve', 'genre'] },
       // AI-native player behavior simulation & telemetry
-      { name: 'game_analytics', pattern: /(分析|analytics|留存|retention|流失|玩家行为|funnel|漏斗|会话时长|难度曲线|drop.?off|玩家数据)/i, args: ['gameId', 'seed', 'useLlm'] },
+      { name: 'game_analytics', pattern: /(分析|analytics|留存|retention|流失|玩家行为|funnel|漏斗|会话时长|drop.?off|玩家数据)/i, args: ['gameId', 'seed', 'useLlm'] },
       // Agent introspection: explain last decision & reasoning
       { name: 'agent_explain', pattern: /(为什么|why did you|解释|explain|推理过程|reasoning|你是怎么|如何决策|你为什么|刚才.*决策|你.*怎么.*想|能力|工具列表|capabilities|有哪些工具|你能做什么)/i, args: ['sessionId', 'scope'] },
       // Headless gameplay simulation with issue reporting
@@ -93,6 +97,8 @@ export class TaskPlanner {
       { name: 'lint_scripts', pattern: /(检查脚本|lint|脚本检查|代码检查|脚本错误|语法检查|脚本验证|检查.*代码|检查.*脚本)/i, args: ['gameId', 'scope'] },
       // Runtime preview control
       { name: 'control_runtime', pattern: /(重启游戏|重新开始|restart|暂停|pause|继续|resume|调速|speed|无敌|god.?mode|上帝模式|生成敌人|spawn.*enemy|触发胜利|触发失败|win|lose)/i, args: ['gameId', 'command', 'speed', 'entity', 'count', 'enabled'] },
+      // Accessibility audit
+      { name: 'audit_accessibility', pattern: /(无障碍|accessibility|可访问|对比度|色盲|color.?blind|字幕|subtitle|键盘.*操作|可玩|适配)/i, args: ['gameId', 'focus'] },
 
       // High specificity quality + community tools (BEFORE help to avoid
       // false-positive on keywords like "功能" inside install/asset requests)
@@ -701,6 +707,37 @@ export class TaskPlanner {
       } else if (/胜利|win/i.test(message)) args.command = 'win';
       else if (/失败|lose/i.test(message)) args.command = 'lose';
       else args.command = 'restart';
+    }
+
+    // ---- audit_accessibility ----
+    if (intentName === 'audit_accessibility') {
+      if (/对比度|对比/i.test(message)) args.focus = 'contrast';
+      else if (/色盲|color.?blind/i.test(message)) args.focus = 'colorblind';
+      else if (/字幕|subtitle/i.test(message)) args.focus = 'subtitles';
+      else if (/键盘|控制/i.test(message)) args.focus = 'controls';
+      else if (/闪烁|动效|motion/i.test(message)) args.focus = 'motion';
+      else args.focus = 'all';
+    }
+
+    // ---- design_progression ----
+    if (intentName === 'design_progression') {
+      const lm = message.match(/(\d+)\s*(?:关|级|关卡|level)/i);
+      if (lm) args.levels = Number(lm[1]);
+      if (/指数|陡峭|exponential/i.test(message)) args.curve = 'exponential';
+      else if (/平缓|温柔|gentle/i.test(message)) args.curve = 'gentle';
+      else if (/尖峰|波动|spiky/i.test(message)) args.curve = 'spiky';
+      else args.curve = 'linear';
+    }
+
+    // ---- checkpoint_state ----
+    if (intentName === 'checkpoint_state') {
+      if (/读档|加载|load|恢复/i.test(message)) args.action = 'load';
+      else if (/删除|delete/i.test(message)) args.action = 'delete';
+      else if (/列表|查看|list/i.test(message)) args.action = 'list';
+      else if (/清除|清空|clear/i.test(message)) args.action = 'clear';
+      else args.action = 'save';
+      const nm = message.match(/(?:名为|叫|命名为)?[“"']([^"”']+)[”"']/);
+      if (nm) args.name = nm[1];
     }
 
     return args;
