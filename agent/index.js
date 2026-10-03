@@ -58,7 +58,18 @@ export function createAgent(config = {}) {
     provider,
     systemPrompt: config.systemPrompt,
     maxSteps: config.maxSteps || 6,
+    gameService: services.gameService,
   });
+
+  // Late-bind orchestrator + tools into the shared services object so the
+  // agent_explain introspection tool can read the orchestrator's decision
+  // trace and the tool registry's capability list at execution time.
+  services.orchestrator = agent;
+  services.tools = tools;
+  // Wire the orchestrator's undo manager into the tool registry so the
+  // undo_redo tool can access the snapshot stacks.
+  tools.setUndoManager(agent.undoManager);
+  tools.registerDefaults();
 
   return agent;
 }
