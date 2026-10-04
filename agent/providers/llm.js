@@ -266,6 +266,114 @@ export class LLMProvider {
     if (/(创作团|专家团|多智能体|协同构思|团队.*设计|crew|specialist|一起.*构思|企划)/.test(msg) && names.includes('dispatch_crew')) {
       return { tool: 'dispatch_crew', args: { brief: msg, autoApply: /落地|自动|创建|应用/.test(msg) } };
     }
+    // AI-native quality & onboarding tools (newer additions)
+    if (/(模板|template|快速创建|快速开始|预设游戏|套用模板|从模板)/.test(msg) && names.includes('generate_game_template')) {
+      const out = {};
+      if (/射击|shooter/.test(msg)) out.genre = 'shooter';
+      else if (/平台|platform/.test(msg)) out.genre = 'platformer';
+      else if (/rpg|角色/.test(msg)) out.genre = 'rpg';
+      else if (/解谜|puzzle/.test(msg)) out.genre = 'puzzle';
+      else if (/塔防|tower/.test(msg)) out.genre = 'tower';
+      else if (/肉鸽|roguelike/.test(msg)) out.genre = 'roguelike';
+      else if (/赛车|racing/.test(msg)) out.genre = 'racing';
+      else if (/节奏|rhythm/.test(msg)) out.genre = 'rhythm';
+      if (/简单|easy/.test(msg)) out.difficulty = 'easy';
+      else if (/困难|hard/.test(msg)) out.difficulty = 'hard';
+      else out.difficulty = 'normal';
+      return { tool: 'generate_game_template', args: out };
+    }
+    if (/(趣味|fun.*factor|好玩吗|趣味评估|趣味分析|趣味度|游戏评估|fun.*score|吸引力)/.test(msg) && names.includes('analyze_fun_factor')) {
+      return { tool: 'analyze_fun_factor', args: {} };
+    }
+    if (/(教程|tutorial|新手引导|教学|onboarding|入门引导|操作说明|引导步骤)/.test(msg) && names.includes('generate_tutorial')) {
+      const out = {};
+      const sm = msg.match(/(\d+)\s*步/);
+      if (sm) out.steps = Number(sm[1]);
+      if (/极简|minimal/.test(msg)) out.style = 'minimal';
+      else if (/情境|contextual/.test(msg)) out.style = 'contextual';
+      else out.style = 'guided';
+      return { tool: 'generate_tutorial', args: out };
+    }
+    // Undo / redo — must be checked BEFORE version_history-style keywords.
+    if (/(撤销|undo|重做|redo|回退.*操作|撤回)/.test(msg) && names.includes('undo_redo')) {
+      const out = { action: /重做|redo/.test(msg) ? 'redo' : 'undo' };
+      if (/历史|history|列表/.test(msg)) out.action = 'history';
+      else if (/查看|peek|状态/.test(msg)) out.action = 'peek';
+      return { tool: 'undo_redo', args: out };
+    }
+    if (/(无障碍|accessibility|可访问|对比度|色盲|color.?blind|字幕|subtitle|键盘.*操作)/.test(msg) && names.includes('audit_accessibility')) {
+      return { tool: 'audit_accessibility', args: {} };
+    }
+    if (/(进度设计|关卡设计|难度曲线|progression|设计.*关|关卡.*难度|boss.*安排|节奏设计|升级曲线|成长曲线)/.test(msg) && names.includes('design_progression')) {
+      return { tool: 'design_progression', args: {} };
+    }
+    if (/(检查点|checkpoint|保存.*进度|读档|加载.*存档|保存状态|恢复.*进度|游戏存档点|运行时存档|runtime.*save)/.test(msg) && names.includes('checkpoint_state')) {
+      const out = {};
+      if (/保存|存入|save/.test(msg)) out.action = 'save';
+      else if (/读取|加载|恢复|load|restore/.test(msg)) out.action = 'load';
+      else if (/删除|移除|delete|remove/.test(msg)) out.action = 'delete';
+      else if (/列表|查看|list/.test(msg)) out.action = 'list';
+      else if (/清除|清空|clear/.test(msg)) out.action = 'clear';
+      else out.action = 'save';
+      return { tool: 'checkpoint_state', args: out };
+    }
+    if (/(成就|achievement|解锁条件|奖杯|勋章)/.test(msg) && names.includes('manage_achievements')) {
+      const out = { action: /列表|查看|list/.test(msg) ? 'list' : 'add' };
+      return { tool: 'manage_achievements', args: out };
+    }
+    if (/(场景|关卡|scene|level|多场景|多关卡)/.test(msg) && names.includes('manage_scenes')) {
+      const out = { action: /列表|查看|list/.test(msg) ? 'list' : 'add' };
+      return { tool: 'manage_scenes', args: out };
+    }
+    if (/(排行榜|榜单|leaderboard)/.test(msg) && names.includes('manage_leaderboard')) {
+      const out = { action: /列表|查看|list/.test(msg) ? 'list' : 'add' };
+      return { tool: 'manage_leaderboard', args: out };
+    }
+    if (/(翻译|translate|本地化|localization|多语言|语言切换)/.test(msg) && names.includes('translate_game')) {
+      const out = {};
+      if (/英文|英语|en/.test(msg)) out.targetLang = 'en';
+      else if (/日语|日本語|ja/.test(msg)) out.targetLang = 'ja';
+      else if (/韩语|한국어|ko/.test(msg)) out.targetLang = 'ko';
+      return { tool: 'translate_game', args: out };
+    }
+    if (/(平衡|balance|调平衡|自动平衡|难度平衡|数值平衡|平衡测试|平衡调整)/.test(msg) && names.includes('balance_game')) {
+      return { tool: 'balance_game', args: {} };
+    }
+    // Compose music — BEFORE manage_audio so "作曲/生成背景音乐" routes here.
+    if (/(作曲|生成.*背景音乐|生成.*音乐|compose.*music|配乐|自动配乐|原创.*音乐|程序化.*音乐)/.test(msg) && names.includes('compose_music')) {
+      const out = {};
+      if (/宁静|calm/.test(msg)) out.mood = 'calm';
+      else if (/激战|intense|紧张/.test(msg)) out.mood = 'intense';
+      else if (/boss|首领|终焉/.test(msg)) out.mood = 'boss';
+      else if (/菜单|menu/.test(msg)) out.mood = 'menu';
+      else if (/胜利|凯旋|victory/.test(msg)) out.mood = 'victory';
+      return { tool: 'compose_music', args: out };
+    }
+    if (/(音乐|music|音效|sfx|sound|audio|bgm|背景音乐)/.test(msg) && names.includes('manage_audio')) {
+      return { tool: 'manage_audio', args: {} };
+    }
+    if (/(剧情|故事|story|narrative|叙事|剧情大纲)/.test(msg) && names.includes('generate_story')) {
+      return { tool: 'generate_story', args: {} };
+    }
+    // Dialogue tree — for narrative games with branching conversation.
+    if (/(生成.*对话树|对话树.*生成|分支对话|对白分支|剧情分支|选项.*对话|dialogue.*tree|多结局.*对话)/.test(msg) && names.includes('generate_dialogue_tree')) {
+      return { tool: 'generate_dialogue_tree', args: {} };
+    }
+    if (/(性能|performance|profile|帧率|fps|瓶颈|优化建议|性能分析|性能测试)/.test(msg) && names.includes('profile_game')) {
+      return { tool: 'profile_game', args: {} };
+    }
+    if (/(检查脚本|lint|脚本检查|代码检查|脚本错误|语法检查|脚本验证)/.test(msg) && names.includes('lint_scripts')) {
+      return { tool: 'lint_scripts', args: {} };
+    }
+    if (/(重启游戏|重新开始|restart|暂停|pause|继续|resume|调速|speed|无敌|god.?mode)/.test(msg) && names.includes('control_runtime')) {
+      const out = {};
+      if (/重启|重新开始|restart/.test(msg)) out.command = 'restart';
+      else if (/暂停|pause/.test(msg)) out.command = 'pause';
+      else if (/继续|resume/.test(msg)) out.command = 'resume';
+      else if (/调速|speed/.test(msg)) out.command = 'speed';
+      else if (/无敌|god.?mode/.test(msg)) out.command = 'godmode';
+      return { tool: 'control_runtime', args: out };
+    }
 
     // Theme / scenario / code / tweak tools (higher specificity than generic CRUD)
     if (/(主题|风格|theme|style|配色|赛博|像素|复古|樱花|街机)/.test(msg) && names.includes('apply_style_theme')) {
