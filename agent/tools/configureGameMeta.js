@@ -47,7 +47,11 @@ export function configureGameMetaTool(services = {}) {
       if (accessibility) changes.push('无障碍选项已更新');
 
       if (gameService?.update) {
+        // Store meta both at game.meta (frontend TabMeta reads from here) and
+        // game.config.meta (configure_game_meta's historical location) so both
+        // the UI panel and downstream config consumers stay in sync.
         await gameService.update(gameId, {
+          meta: next,
           config: { ...(baseConfig || {}), meta: next },
         });
       }
