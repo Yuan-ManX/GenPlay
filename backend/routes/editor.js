@@ -8,6 +8,9 @@ export function editorRoutes(agentService) {
 
   router.get('/tools', c.listTools);
   router.post('/action', validateBody({ required: ['tool'] }), c.runAction);
+  router.post('/action/stream', validateBody({ required: ['tool'] }), c.runActionStream);
+  router.post('/batch', c.runBatch);
+  router.get('/suggestions/:gameId', c.suggestions);
 
   return router;
 }
