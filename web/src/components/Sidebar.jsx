@@ -2,12 +2,16 @@ const GENRE_ICONS = {
   shooter: '🚀', adventure: '🗺️', rpg: '⚔️', puzzle: '🧩', battle: '🥊',
   racing: '🏎️', simulation: '🌾', platformer: '🦘', tower: '🏰', snake: '🐍',
   breakout: '🧱', maze: '🔮', rhythm: '🎵',
+  roguelike: '🃏', deckbuilder: '🎴', metroidvania: '🗺️', idle: '⏱️',
+  sandbox: '🏖️', visual_novel: '📖', auto_battler: '🤖',
 };
 
 const GENRE_BADGE = {
   shooter: 'g-shooter', adventure: 'g-adventure', rpg: 'g-rpg', puzzle: 'g-puzzle',
   battle: 'g-battle', racing: 'g-racing', simulation: 'g-sim', platformer: 'g-platformer',
   tower: 'g-tower', snake: 'g-snake', breakout: 'g-breakout', maze: 'g-maze', rhythm: 'g-rhythm',
+  roguelike: 'g-roguelike', deckbuilder: 'g-deckbuilder', metroidvania: 'g-metroidvania',
+  idle: 'g-idle', sandbox: 'g-sandbox', visual_novel: 'g-visual_novel', auto_battler: 'g-auto_battler',
 };
 
 const STATUS_COLOR = {
@@ -106,5 +110,7 @@ function labelFor(genre) {
     shooter: '射击', adventure: '冒险', rpg: 'RPG', puzzle: '解谜',
     battle: '对战', racing: '赛车', simulation: '模拟', platformer: '平台',
     tower: '塔防', snake: '贪吃蛇', breakout: '打砖块', maze: '迷宫', rhythm: '节奏',
+    roguelike: '肉鸽', deckbuilder: '卡牌', metroidvania: '银河城',
+    idle: '放置', sandbox: '沙盒', visual_novel: '视觉小说', auto_battler: '自走棋',
   })[genre] || genre || '未知';
 }
