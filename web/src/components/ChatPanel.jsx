@@ -126,6 +126,106 @@ const SUGGESTION_MAP = {
     { label: '⚡ 一键优化', message: '快速迭代优化平衡性' },
     { label: '🏃 试玩复刻', message: '运行游戏' },
   ],
+  edit_config_field: [
+    { label: '🏃 试玩数值', message: '运行游戏' },
+    { label: '📖 查看配置', message: '查看代码配置' },
+  ],
+  edit_script: [
+    { label: '🏃 验证脚本', message: '运行游戏' },
+    { label: '🛠️ 深度调试', message: '深度调试游戏' },
+  ],
+  manage_npc: [
+    { label: '🏃 查看NPC对话', message: '运行游戏' },
+    { label: '➕ 更多角色', message: '再添加一个NPC' },
+  ],
+  manage_asset: [
+    { label: '🏃 试玩资产', message: '运行游戏' },
+    { label: '🎵 生成音乐', message: '添加一个背景音乐资产' },
+  ],
+  play_test: [
+    { label: '🔧 修复问题', message: '深度调试并自动修复' },
+    { label: '⚖️ 调整平衡', message: '快速迭代优化平衡性' },
+  ],
+  ai_suggest: [
+    { label: '🏃 模拟测试', message: '运行模拟测试' },
+    { label: '⚡ 快速迭代', message: '快速迭代优化' },
+  ],
+  manage_achievements: [
+    { label: '🏆 更多成就', message: '再添加一个成就' },
+    { label: '🏃 验证解锁', message: '运行游戏' },
+  ],
+  manage_scenes: [
+    { label: '🗺️ 更多关卡', message: '再添加一个关卡' },
+    { label: '🏃 试玩关卡', message: '运行游戏' },
+  ],
+  manage_leaderboard: [
+    { label: '📊 更多榜单', message: '再添加一个排行榜' },
+    { label: '🚀 发布', message: '发布上线' },
+  ],
+  translate_game: [
+    { label: '🌐 更多语言', message: '翻译成日语' },
+    { label: '🚀 发布', message: '发布上线' },
+  ],
+  balance_game: [
+    { label: '🏃 验证平衡', message: '运行模拟测试' },
+    { label: '⚖️ 再调平衡', message: '平衡到困难难度' },
+  ],
+  manage_audio: [
+    { label: '🔊 添加音效', message: '添加一个射击音效' },
+    { label: '🏃 试听效果', message: '运行游戏' },
+  ],
+  generate_story: [
+    { label: '🎨 配主题', message: '应用赛博朋克主题' },
+    { label: '🎭 设计角色', message: '设计3个NPC角色' },
+  ],
+  profile_game: [
+    { label: '🔧 优化瓶颈', message: '快速迭代优化性能' },
+    { label: '🏃 试玩验证', message: '运行游戏' },
+  ],
+  lint_scripts: [
+    { label: '🛠️ 修复问题', message: '深度调试并自动修复' },
+    { label: '🏃 验证脚本', message: '运行游戏' },
+  ],
+  control_runtime: [
+    { label: '⏸️ 暂停游戏', message: '暂停游戏' },
+    { label: '⚡ 加速', message: '游戏速度调到2倍' },
+  ],
+  game_analytics: [
+    { label: '🔧 降低流失', message: '快速迭代优化留存' },
+    { label: '⚖️ 调平衡', message: '自动平衡难度' },
+  ],
+  version_history: [
+    { label: '📷 新快照', message: '创建一个版本快照' },
+    { label: '↩️ 回滚', message: '回滚到上一个版本' },
+  ],
+  agent_explain: [
+    { label: '🧰 工具列表', message: '你有哪些工具' },
+    { label: '🎮 继续创作', message: '创建一个射击游戏' },
+  ],
+  audit_accessibility: [
+    { label: '🔧 修复问题', message: '快速迭代优化无障碍' },
+    { label: '🏃 试玩验证', message: '运行游戏' },
+  ],
+  design_progression: [
+    { label: '🏃 试玩关卡', message: '运行游戏' },
+    { label: '➕ 更多关卡', message: '再设计5关' },
+  ],
+  checkpoint_state: [
+    { label: '💾 新存档', message: '保存游戏进度' },
+    { label: '📋 存档列表', message: '查看检查点列表' },
+  ],
+  generate_game_template: [
+    { label: '🚀 射击模板', message: '用射击模板创建游戏' },
+    { label: '⚔️ RPG模板', message: '用RPG模板创建游戏' },
+  ],
+  analyze_fun_factor: [
+    { label: '🔧 优化建议', message: '快速迭代优化' },
+    { label: '♿ 无障碍', message: '检查无障碍' },
+  ],
+  generate_tutorial: [
+    { label: '🏃 试玩验证', message: '运行游戏' },
+    { label: '📖 更多步骤', message: '生成8步教程' },
+  ],
 };
 
 // Inspiration prompt gallery for empty state
@@ -157,6 +257,15 @@ export default function ChatPanel({ sessionId, onSessionChange, onGamesChanged, 
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, suggestions, streamTrace, plan, crewBlueprint]);
+
+  // Allow other components (e.g. StudioPanel AI-suggest chips) to send a
+  // message into the chat by emitting 'chat:send'.
+  useEffect(() => {
+    const off = events.on('chat:send', ({ message }) => {
+      if (message) send(message);
+    });
+    return off;
+  }, [selectedGameId, sessionId]);
 
   // Pre-fill input when user has a selected game but no ID in message text
   const buildMessageFor = (raw) => {
@@ -232,6 +341,18 @@ export default function ChatPanel({ sessionId, onSessionChange, onGamesChanged, 
             if (data.result.blueprint) setCrewBlueprint(data.result.blueprint);
             if (data.result.specialists) setCrewSpecialists(data.result.specialists);
             if (data.result.remixOf) setRemixInfo({ remixOf: data.result.remixOf, sourceTitle: data.result.remixSourceTitle });
+            // ai_suggest suggestions: render as clickable follow-up chips.
+            if (data.result.suggestions?.length) {
+              setSuggestions(data.result.suggestions.slice(0, 6).map((s) => ({
+                label: `${_suggestIcon(s.category)} ${s.text.slice(0, 18)}${s.text.length > 18 ? '…' : ''}`,
+                message: s.followUp,
+              })));
+            }
+            // play_test report: emit an event the studio can consume for the
+            // playtest panel.
+            if (data.result.playtest) {
+              events.emit('studio:playtest', { gameId: data.result.currentGameId, report: data.result.playtest });
+            }
           }
         },
       });
@@ -594,6 +715,17 @@ function needsGameId(text) {
   const t = String(text || '').toLowerCase();
   return /(修改|编辑|改|调参|调试|排错|bug|运行|试玩|test|run|发布|上线|publish|deploy|详情|describe|代码|脚本|config|参数|主题|风格|剧情|场景|修复|diff|关卡|资产|npc|角色|成就|多人|节点|逻辑|快速迭代|优化)/i.test(t)
     && !/创建|生成|列出|list|有哪些|你能|帮助|你好|hi|hello|谢谢|创意|灵感|混搭/i.test(t);
+}
+
+// Category icon for ai_suggest chips.
+function _suggestIcon(category) {
+  switch (category) {
+    case 'balance': return '⚖️';
+    case 'content': return '📦';
+    case 'polish': return '✨';
+    case 'accessibility': return '♿';
+    default: return '💡';
+  }
 }
 
 // Compact one-line preview of tool args for the streaming trace.
