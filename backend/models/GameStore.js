@@ -164,13 +164,21 @@ export class GameStore {
     await this.ready;
     const game = await this.getById(id);
     if (!game) return null;
-    // Deep merge for config so partial config patches don't wipe sibling keys
-    const mergedConfig = (patch.config && game.config)
-      ? deepMerge(game.config, patch.config)
-      : (patch.config || game.config);
+    // Deep merge for config so partial config patches don't wipe sibling keys.
+    // When patch._configReplace is true, the provided config REPLACES the
+    // existing one entirely (used by version_history restore to roll back
+    // to an exact snapshot state rather than merging stale keys back in).
+    const replaceConfig = patch._configReplace === true;
+    const configPatch = patch.config;
+    const mergedConfig = replaceConfig
+      ? (configPatch || {})
+      : (configPatch && game.config)
+        ? deepMerge(game.config, configPatch)
+        : (configPatch || game.config);
+    const { _configReplace, ...cleanPatch } = patch;
     const updated = {
       ...game,
-      ...patch,
+      ...cleanPatch,
       config: mergedConfig,
       id,
       updatedAt: new Date().toISOString(),
