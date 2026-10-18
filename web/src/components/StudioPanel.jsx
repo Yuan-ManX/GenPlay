@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../services/api.js';
 import events from '../services/events.js';
 import GamePreview from './GamePreview.jsx';
@@ -64,6 +64,8 @@ const TABS = [
   { key: 'explore', label: '社区', icon: '🌐' },
   { key: 'code', label: '源码', icon: '🧾' },
   { key: 'debug', label: '调试', icon: '🛠️' },
+  { key: 'history', label: '版本', icon: '🗂️' },
+  { key: 'analytics', label: '分析', icon: '📊' },
 ];
 
 const NODE_PALETTE = [
@@ -109,12 +111,21 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
   const [form, setForm] = useState({ name: '', genre: 'adventure', description: '' });
   const [game, setGame] = useState(null);
   const [tab, setTab] = useState('basic');
+  const saveGameRef = useRef(null);
   const [runResult, setRunResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const [codeView, setCodeView] = useState({ sections: null, section: 'all' });
   const [exploreFilter, setExploreFilter] = useState('all');
   const [stats, setStats] = useState({ total: 0, published: 0, runs: 0, genres: 0 });
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [playtestReport, setPlaytestReport] = useState(null);
+  const [flashField, setFlashField] = useState(null);
+  const [composedTracks, setComposedTracks] = useState(null);
+  const [dialogueTrees, setDialogueTrees] = useState(null);
+  const [undoStatus, setUndoStatus] = useState({ canUndo: false, canRedo: false, pastCount: 0, futureCount: 0 });
+  const [undoHistory, setUndoHistory] = useState(null);
+  const [musicPlaying, setMusicPlaying] = useState(null);
 
   useEffect(() => { if (gameId) loadGame(gameId); }, [gameId]);
 
@@ -172,9 +183,127 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
     }));
     offs.push(events.on('studio:set-meta', ({ gameId: id, payload }) => {
       if (!game || game.id !== id) loadGame(id);
-      else setGame((g) => g ? ({ ...g, meta: payload }) : g);
+      else setGame((g) => g ? ({ ...g, meta: payload.meta || payload }) : g);
       setTab('meta');
       flash('游戏元设置已更新');
+    }));
+    // Achievements patch (manage_achievements tool).
+    offs.push(events.on('studio:patch-achievements', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, meta: { ...(g.meta || {}), achievements: payload.achievements } }) : g);
+      setTab('meta');
+      flash(`成就列表已更新（${payload.action}）`);
+    }));
+    // Scenes patch (manage_scenes tool).
+    offs.push(events.on('studio:patch-scenes', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, scenes: payload.scenes }) : g);
+      setTab('scenario');
+      flash(`场景列表已更新（${payload.action}）`);
+    }));
+    // Leaderboards patch (manage_leaderboard tool).
+    offs.push(events.on('studio:patch-leaderboards', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, meta: { ...(g.meta || {}), leaderboards: payload.boards } }) : g);
+      setTab('meta');
+      flash(`排行榜已更新（${payload.action}）`);
+    }));
+    // Audio patch (manage_audio tool).
+    offs.push(events.on('studio:patch-audio', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else {
+        const field = payload.kind === 'music' ? 'playlist' : 'sfx';
+        setGame((g) => g ? ({ ...g, audio: { ...(g.audio || {}), [field]: payload[field] } }) : g);
+      }
+      setTab('assets');
+      flash(`音频已更新（${payload.kind}.${payload.action}）`);
+    }));
+    // Story generation (generate_story tool).
+    offs.push(events.on('studio:set-story', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, story: payload.story }) : g);
+      setTab('scenario');
+      flash(`已生成剧情《${payload.story?.title}》`);
+    }));
+    // Performance profile (profile_game tool).
+    offs.push(events.on('studio:show-profile', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, lastProfile: payload }) : g);
+      setTab('analytics');
+      flash(`性能评估：${payload.grade} 级（${payload.score} 分）`);
+    }));
+    // Lint report (lint_scripts tool).
+    offs.push(events.on('studio:show-lint', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, lastLint: payload }) : g);
+      setTab('scripts');
+      flash(`脚本检查：${payload.summary.errors} 错误，${payload.summary.warnings} 警告`);
+    }));
+    // Accessibility audit (audit_accessibility tool).
+    offs.push(events.on('studio:show-accessibility', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, lastAccessibility: payload }) : g);
+      setTab('analytics');
+      flash(`无障碍评估：${payload.grade} 级（${payload.score} 分）`);
+    }));
+    // Progression design (design_progression tool).
+    offs.push(events.on('studio:set-progression', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, progression: payload.progression }) : g);
+      setTab('scenario');
+      flash(`已设计 ${payload.progression?.levelCount} 关进度`);
+    }));
+    // Checkpoint state (checkpoint_state tool).
+    offs.push(events.on('studio:save-checkpoint', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, checkpoints: payload.checkpoints }) : g);
+      if (game && game.id === id) events.emit('runtime:save-checkpoint', { gameId: id, checkpoint: payload.checkpoint });
+      flash(`已保存检查点「${payload.checkpoint?.name}」`);
+    }));
+    offs.push(events.on('studio:load-checkpoint', ({ gameId: id, payload }) => {
+      if (game && game.id === id) events.emit('runtime:load-checkpoint', { gameId: id, checkpoint: payload.checkpoint });
+      flash(`已加载检查点「${payload.checkpoint?.name}」`);
+    }));
+    offs.push(events.on('studio:list-checkpoints', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, checkpoints: payload.checkpoints }) : g);
+      flash(`共 ${payload.checkpoints?.length || 0} 个检查点`);
+    }));
+    offs.push(events.on('studio:delete-checkpoint', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, checkpoints: payload.checkpoints }) : g);
+      flash('检查点已删除');
+    }));
+    offs.push(events.on('studio:clear-checkpoints', ({ gameId: id }) => {
+      if (game && game.id === id) setGame((g) => g ? ({ ...g, checkpoints: [] }) : g);
+      flash('已清除所有检查点');
+    }));
+    // Fun factor analysis (analyze_fun_factor tool).
+    offs.push(events.on('studio:show-fun-factor', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, lastFunFactor: payload }) : g);
+      setTab('analytics');
+      flash(`趣味评估：${payload.grade} 级（${payload.total} 分）`);
+    }));
+    // Tutorial generation (generate_tutorial tool).
+    offs.push(events.on('studio:show-tutorial', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, tutorial: payload.tutorial }) : g);
+      setTab('scenario');
+      flash(`已生成 ${payload.tutorial?.steps?.length || 0} 步教程`);
+    }));
+    // Game template creation (generate_game_template tool).
+    offs.push(events.on('studio:load-game', ({ gameId: id, payload }) => {
+      loadGame(id);
+      setTab('config');
+      flash(`已从模板创建游戏「${payload?.name}」`);
+    }));
+    // Runtime control (control_runtime tool) — forward to the preview.
+    offs.push(events.on('studio:runtime-command', ({ gameId: id, payload }) => {
+      if (game && game.id === id) {
+        events.emit('runtime:command', { gameId: id, ...payload });
+      }
+      flash(`运行时控制：${payload.command}`);
     }));
     offs.push(events.on('studio:add-asset', ({ gameId: id, payload }) => {
       if (!game || game.id !== id) loadGame(id);
@@ -194,6 +323,90 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
       setTab('nodes');
       flash('节点图已更新');
     }));
+    // Agent-driven tab navigation (e.g. analytics tool opens analytics tab).
+    offs.push(events.on('studio:open-tab', ({ tab: t }) => {
+      if (t) setTab(t);
+    }));
+    // Keyboard shortcut: Ctrl+S triggers save.
+    offs.push(events.on('studio:save-game', () => {
+      saveGameRef.current?.();
+    }));
+    // Granular config field edit (edit_config_field tool).
+    offs.push(events.on('studio:patch-config-field', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, config: patchField(g.config, payload.path, payload.after) }) : g);
+      setTab('config');
+      triggerFlash(payload.path);
+      flash(payload.readOnly ? `读取 ${payload.path} = ${JSON.stringify(payload.after)}` : `已修改 ${payload.path} → ${JSON.stringify(payload.after)}`);
+    }));
+    // Script section edit (edit_script tool).
+    offs.push(events.on('studio:patch-script', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, scriptSections: { ...(g.scriptSections || {}), [payload.section]: payload.after } }) : g);
+      setTab('scripts');
+      flash(`已生成 ${payload.section} 脚本（${payload.diff?.length || 0} 行变更）`);
+    }));
+    // NPC add/update/remove (manage_npc tool).
+    offs.push(events.on('studio:patch-npcs', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, npcs: payload.npcs }) : g);
+      setTab('assets');
+      flash(`NPC 列表已更新（${payload.action}）`);
+    }));
+    // Asset add/update/remove (manage_asset tool).
+    offs.push(events.on('studio:patch-assets', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, assets: payload.assets }) : g);
+      setTab('assets');
+      flash(`资产列表已更新（${payload.action}）`);
+    }));
+    // Playtest report (play_test tool).
+    offs.push(events.on('studio:show-playtest', ({ gameId: id, payload }) => {
+      setPlaytestReport(payload);
+      setTab('analytics');
+      flash(`模拟完成：得分 ${payload.score}，${payload.issues?.length || 0} 项问题`);
+    }));
+    // AI suggestions (ai_suggest tool).
+    offs.push(events.on('studio:show-suggestions', ({ gameId: id, payload }) => {
+      setAiSuggestions(payload.suggestions || []);
+      flash(`已生成 ${payload.suggestions?.length || 0} 条改进建议`);
+    }));
+    // Composed music tracks (compose_music tool).
+    offs.push(events.on('studio:patch-music', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, audio: { ...(g.audio || {}), composed: payload.tracks } }) : g);
+      setComposedTracks(payload.tracks);
+      setTab('assets');
+      flash(`已作曲 ${payload.tracks?.length || 0} 首背景音乐`);
+    }));
+    // Dialogue tree generation (generate_dialogue_tree tool).
+    offs.push(events.on('studio:patch-dialogue', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else {
+        setGame((g) => {
+          if (!g) return g;
+          const existing = Array.isArray(g.dialogueTrees) ? g.dialogueTrees : [];
+          return { ...g, dialogueTrees: [...existing, payload.tree] };
+        });
+      }
+      setDialogueTrees(payload.tree);
+      setTab('scenario');
+      flash(`已生成对话树「${payload.tree?.title}」（${payload.tree?.nodeCount} 节点）`);
+    }));
+    // Undo/redo status updates (undo_redo tool).
+    offs.push(events.on('studio:undo-status', ({ gameId: id, payload }) => {
+      if (!game || game.id === id) setUndoStatus(payload);
+    }));
+    offs.push(events.on('studio:undo-history', ({ gameId: id, payload }) => {
+      if (!game || game.id === id) setUndoHistory(payload);
+    }));
+    // Keyboard shortcut signals from App.jsx.
+    offs.push(events.on('chat:trigger-undo', () => {
+      if (game?.id) handleUndoRedo('undo');
+    }));
+    offs.push(events.on('chat:trigger-redo', () => {
+      if (game?.id) handleUndoRedo('redo');
+    }));
     return () => offs.forEach((f) => f && f());
   }, [game?.id]);
 
@@ -208,6 +421,13 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
   const flash = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(null), 2200);
+  };
+
+  // Flash a specific config field with a highlight animation when the
+  // agent edits it via edit_config_field.
+  const triggerFlash = (path) => {
+    setFlashField(path);
+    setTimeout(() => setFlashField(null), 1600);
   };
 
   const createGame = async () => {
@@ -238,6 +458,8 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
       flash('已保存');
     } catch (err) { alert(`保存失败: ${err.message}`); }
   };
+  // Keep ref in sync so keyboard shortcut can call the latest saveGame.
+  saveGameRef.current = saveGame;
 
   const runGame = async () => {
     if (!game) return;
@@ -279,6 +501,119 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
       onGamesChange?.();
       flash(res.result?.summary || '已应用');
     } catch (err) { alert(err.message); }
+  };
+
+  // Fetch AI improvement suggestions for the current game and display them
+  // as clickable chips that send follow-up messages to the chat.
+  const fetchSuggestions = async () => {
+    if (!game?.id) return;
+    try {
+      const res = await api.editorAction('ai_suggest', { gameId: game.id }, sessionId);
+      const sugs = res.result?.suggestions || [];
+      setAiSuggestions(sugs);
+      flash(`已生成 ${sugs.length} 条改进建议`);
+    } catch (err) { alert(err.message); }
+  };
+
+  // Undo/Redo handler — calls the direct REST endpoint and refreshes state.
+  const handleUndoRedo = async (action) => {
+    if (!game?.id) return;
+    try {
+      const res = action === 'undo' ? await api.undoGame(game.id) : await api.redoGame(game.id);
+      if (res.ok) {
+        loadGame(game.id);
+        flash(res.summary || (action === 'undo' ? '已撤销' : '已重做'));
+        // Refresh undo status
+        try {
+          const statusRes = await api.editorAction('undo_redo', { gameId: game.id, action: 'peek' }, sessionId);
+          if (statusRes.result?.status) setUndoStatus(statusRes.result.status);
+        } catch (_) {}
+      } else {
+        flash(res.error || '操作失败');
+      }
+    } catch (err) { flash(err.message); }
+  };
+
+  // Compose music via direct REST endpoint.
+  const handleComposeMusic = async (mood) => {
+    if (!game?.id) return;
+    try {
+      const res = await api.composeMusic(game.id, { mood: mood || undefined });
+      if (res.ok) {
+        setComposedTracks(res.tracks);
+        flash(res.summary || '已生成背景音乐');
+      } else {
+        flash(res.error || '作曲失败');
+      }
+    } catch (err) { flash(err.message); }
+  };
+
+  // Generate dialogue tree via direct REST endpoint.
+  const handleGenerateDialogue = async () => {
+    if (!game?.id) return;
+    try {
+      const res = await api.generateDialogueTree(game.id);
+      if (res.ok) {
+        setDialogueTrees(res.tree);
+        flash(res.summary || '已生成对话树');
+      } else {
+        flash(res.error || '生成失败');
+      }
+    } catch (err) { flash(err.message); }
+  };
+
+  // Simple Web Audio API player for composed tracks.
+  const audioCtxRef = useRef(null);
+  const playTrack = (track) => {
+    try {
+      if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = audioCtxRef.current;
+      const beatDur = 60 / track.tempo;
+      const playNotes = (notes, type, gainVal) => {
+        if (!Array.isArray(notes)) return;
+        for (const n of notes) {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = type;
+          // Parse note name like "C4" to frequency
+          const noteMap = { C: 0, 'C#': 1, D: 2, 'D#': 3, E: 4, F: 5, 'F#': 6, G: 7, 'G#': 8, A: 9, 'A#': 10, B: 11 };
+          const match = n.note?.match(/^([A-G]#?)(\d+)$/);
+          if (match) {
+            const semitone = noteMap[match[1]] + (parseInt(match[2]) - 4) * 12;
+            osc.frequency.value = 440 * Math.pow(2, semitone / 12);
+          }
+          gain.gain.value = (n.velocity || 0.5) * gainVal;
+          const start = ctx.currentTime + n.start * beatDur;
+          osc.connect(gain); gain.connect(ctx.destination);
+          osc.start(start);
+          osc.stop(start + (n.duration || 0.25) * beatDur);
+        }
+      };
+      if (track.tracks?.melody) playNotes(track.tracks.melody, 'sine', 0.3);
+      if (track.tracks?.bass) playNotes(track.tracks.bass, 'triangle', 0.25);
+      // Drums — use noise for snare/hihat, low sine for kick
+      if (Array.isArray(track.tracks?.drums)) {
+        for (const d of track.tracks.drums) {
+          const start = ctx.currentTime + d.start * beatDur;
+          if (d.hit === 'kick') {
+            const osc = ctx.createOscillator(); const gain = ctx.createGain();
+            osc.frequency.value = 80; gain.gain.value = (d.velocity || 0.5) * 0.4;
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.start(start); osc.stop(start + 0.1);
+          } else if (d.hit === 'snare' || d.hit === 'hihat') {
+            const buf = ctx.createBuffer(1, 1024, ctx.sampleRate);
+            const data = buf.getChannelData(0);
+            for (let i = 0; i < 1024; i++) data[i] = Math.random() * 2 - 1;
+            const src = ctx.createBufferSource(); const gain = ctx.createGain();
+            src.buffer = buf; gain.gain.value = (d.velocity || 0.3) * 0.15;
+            src.connect(gain); gain.connect(ctx.destination);
+            src.start(start);
+          }
+        }
+      }
+      setMusicPlaying(track.name);
+      flash(`播放「${track.name}」`);
+    } catch (err) { flash('播放失败：' + err.message); }
   };
 
   return (
@@ -391,9 +726,36 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
                 <button className="btn-ghost" onClick={saveGame}>💾 保存</button>
                 <button className="btn-ghost" onClick={runGame}>▶ 运行</button>
                 <button className="btn-ghost" onClick={publishGame}>🚀 发布</button>
+                <button className="btn-ghost" onClick={fetchSuggestions}>💡 AI 建议</button>
+                <button className="btn-ghost" onClick={() => runEditorAction('balance_game', { targetDifficulty: 'normal' })}>⚖️ 自动平衡</button>
+                <button className="btn-ghost" onClick={() => runEditorAction('translate_game', { targetLang: 'en' })}>🌐 翻译</button>
+                <button className="btn-ghost" onClick={() => runEditorAction('generate_story', {})}>📖 生成剧情</button>
+                <button className="btn-ghost" onClick={() => runEditorAction('profile_game', {})}>📊 性能分析</button>
+                <button className="btn-ghost" onClick={() => runEditorAction('lint_scripts', {})}>🔍 检查脚本</button>
                 <button className="btn-danger" onClick={deleteGame}>🗑️</button>
               </div>
             </div>
+
+            {aiSuggestions.length > 0 && (
+              <div className="ai-suggestions-card">
+                <div className="ai-suggestions-head">
+                  <span>💡 AI 改进建议</span>
+                  <button className="btn-mini" onClick={() => setAiSuggestions([])}>收起</button>
+                </div>
+                <div className="ai-suggestions-list">
+                  {aiSuggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      className={`ai-suggest-item cat-${s.category}`}
+                      onClick={() => events.emit('chat:send', { message: s.followUp })}
+                    >
+                      <span className="ai-suggest-cat">{suggestIcon(s.category)}</span>
+                      <span className="ai-suggest-text">{s.text}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <nav className="tabs">
               {TABS.map((t) => (
@@ -411,12 +773,139 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
               {tab === 'tweak' && <TabTweak game={game} setGame={setGame} runEditorAction={runEditorAction} />}
               {tab === 'nodes' && <TabNodes game={game} setGame={setGame} runEditorAction={runEditorAction} />}
               {tab === 'assets' && <TabAssets game={game} setGame={setGame} runEditorAction={runEditorAction} />}
+              {tab === 'assets' && (
+                <div className="tab-section" style={{ marginTop: 16 }}>
+                  <h4 className="tab-h">🎵 AI 原创作曲</h4>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                    <button className="btn-primary" onClick={() => handleComposeMusic()}>🎼 自动作曲（全情绪）</button>
+                    <button className="btn-ghost" onClick={() => handleComposeMusic('calm')}>宁静</button>
+                    <button className="btn-ghost" onClick={() => handleComposeMusic('intense')}>激战</button>
+                    <button className="btn-ghost" onClick={() => handleComposeMusic('boss')}>Boss</button>
+                    <button className="btn-ghost" onClick={() => handleComposeMusic('menu')}>菜单</button>
+                    <button className="btn-ghost" onClick={() => handleComposeMusic('victory')}>凯旋</button>
+                  </div>
+                  {(composedTracks || game?.audio?.composed) && (
+                    <div className="music-tracks">
+                      {(composedTracks || game?.audio?.composed || []).map((t, i) => (
+                        <div key={i} className="music-track-item" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border,#333)' }}>
+                          <button className="btn-ghost btn-sm" onClick={() => playTrack(t)}>▶</button>
+                          <span style={{ fontWeight: 600 }}>{t.name}</span>
+                          <span style={{ opacity: 0.6, fontSize: '0.85em' }}>{t.mood} · {t.tempo} BPM · {t.key}</span>
+                          {musicPlaying === t.name && <span style={{ color: 'var(--accent,#0f0)' }}>♪ 播放中</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               {tab === 'theme' && <TabTheme game={game} runEditorAction={runEditorAction} />}
               {tab === 'scenario' && <TabScenario game={game} runEditorAction={runEditorAction} />}
+              {tab === 'scenario' && (
+                <div className="tab-section" style={{ marginTop: 16 }}>
+                  <h4 className="tab-h">🌳 分支对话树</h4>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                    <button className="btn-primary" onClick={handleGenerateDialogue}>🌳 生成对话树</button>
+                    <button className="btn-ghost" onClick={() => runEditorAction('generate_dialogue_tree', {})}>通过 Agent 生成</button>
+                  </div>
+                  {(dialogueTrees || (game?.dialogueTrees && game.dialogueTrees[0])) && (() => {
+                    const tree = dialogueTrees || game.dialogueTrees[game.dialogueTrees.length - 1];
+                    if (!tree) return null;
+                    return (
+                      <div className="dialogue-tree-view">
+                        <h5>「{tree.title}」 · {tree.nodeCount} 节点 · {tree.endings?.length || 0} 结局</h5>
+                        <div style={{ fontSize: '0.9em', lineHeight: 1.6 }}>
+                          <svg width="100%" height="320" style={{ border: '1px solid var(--border,#333)', borderRadius: 8, background: 'var(--bg-alt,#111)' }}>
+                            {(() => {
+                              // Simple tree layout: BFS from root, each depth level is a row.
+                              const visited = new Set();
+                              const levels = [];
+                              const queue = [{ id: tree.rootId, depth: 0 }];
+                              while (queue.length) {
+                                const { id, depth } = queue.shift();
+                                if (visited.has(id)) continue;
+                                visited.add(id);
+                                const node = tree.nodes?.[id];
+                                if (!node) continue;
+                                if (!levels[depth]) levels[depth] = [];
+                                levels[depth].push(node);
+                                for (const ch of (node.choices || [])) {
+                                  if (ch.next) queue.push({ id: ch.next, depth: depth + 1 });
+                                }
+                              }
+                              const rowH = 80;
+                              const maxW = 800;
+                              const els = [];
+                              levels.forEach((row, d) => {
+                                const y = 30 + d * rowH;
+                                const colW = maxW / (row.length + 1);
+                                row.forEach((node, i) => {
+                                  const x = colW * (i + 1);
+                                  const isEnd = node.isEnding;
+                                  els.push(<circle key={`c-${node.id}`} cx={x} cy={y} r={6} fill={isEnd ? '#f55' : '#5af'} />);
+                                  els.push(<text key={`t-${node.id}`} x={x + 10} y={y + 4} fill="#ccc" fontSize="10">{(node.speaker || '').slice(0, 6)}</text>);
+                                  // Draw edges to children
+                                  (node.choices || []).forEach((ch, ci) => {
+                                    if (!ch.next) return;
+                                    const child = tree.nodes[ch.next];
+                                    if (!child) return;
+                                    // Find child position — search next level
+                                    const childDepth = d + 1;
+                                    const childRow = levels[childDepth] || [];
+                                    const childIdx = childRow.findIndex((n) => n.id === ch.next);
+                                    if (childIdx >= 0) {
+                                      const childX = (maxW / (childRow.length + 1)) * (childIdx + 1);
+                                      const childY = 30 + childDepth * rowH;
+                                      els.push(<line key={`e-${node.id}-${ci}`} x1={x} y1={y} x2={childX} y2={childY} stroke="#444" strokeWidth="1" />);
+                                    }
+                                  });
+                                });
+                              });
+                              return els;
+                            })()}
+                          </svg>
+                        </div>
+                        {/* Node detail list */}
+                        <div style={{ marginTop: 8, maxHeight: 200, overflow: 'auto' }}>
+                          {Object.values(tree.nodes || {}).slice(0, 8).map((n) => (
+                            <div key={n.id} style={{ padding: '4px 0', borderBottom: '1px solid var(--border,#222)' }}>
+                              <strong>{n.speaker}:</strong> <span style={{ opacity: 0.85 }}>{n.text?.slice(0, 80)}{n.text?.length > 80 ? '…' : ''}</span>
+                              {n.isEnding && <span style={{ color: '#f55', marginLeft: 8 }}>[{n.endingLabel}]</span>}
+                              {!n.isEnding && n.choices?.length > 0 && (
+                                <ul style={{ margin: '4px 0 0 16px', fontSize: '0.85em', opacity: 0.7 }}>
+                                  {n.choices.map((c, i) => (
+                                    <li key={i}>{c.text}{c.condition ? ` [需要 ${c.condition.stat}≥${c.condition.gte}]` : ''}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
               {tab === 'meta' && <TabMeta game={game} setGame={setGame} runEditorAction={runEditorAction} />}
               {tab === 'explore' && <TabExplore exploreFilter={exploreFilter} setExploreFilter={setExploreFilter} onPick={(g) => flash(`社区作品: ${g.name}`)} />}
               {tab === 'code' && <TabCodeView game={game} codeView={codeView} runEditorAction={runEditorAction} />}
               {tab === 'debug' && <TabDebug game={game} runResult={runResult} runEditorAction={runEditorAction} />}
+              {tab === 'history' && (
+                <>
+                  <div className="tab-section" style={{ marginBottom: 12 }}>
+                    <h4 className="tab-h">↩️ 撤销 / 重做</h4>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <button className="btn-primary" disabled={!undoStatus.canUndo} onClick={() => handleUndoRedo('undo')}>↶ 撤销</button>
+                      <button className="btn-ghost" disabled={!undoStatus.canRedo} onClick={() => handleUndoRedo('redo')}>↷ 重做</button>
+                      <span style={{ opacity: 0.6, fontSize: '0.85em' }}>
+                        可撤销 {undoStatus.pastCount} 步 · 可重做 {undoStatus.futureCount} 步
+                      </span>
+                      <span style={{ marginLeft: 'auto', fontSize: '0.8em', opacity: 0.5 }}>快捷键: Ctrl+Z / Ctrl+Y</span>
+                    </div>
+                  </div>
+                  <TabHistory game={game} onGamesChange={onGamesChange} flash={flash} />
+                </>
+              )}
+              {tab === 'analytics' && <TabAnalytics game={game} flash={flash} />}
             </div>
           </div>
 
@@ -531,11 +1020,13 @@ function TabConfig({ game, setGame }) {
 }
 
 function TabScripts({ game, setGame }) {
+  const sections = game.scriptSections || {};
+  const sectionNames = Object.keys(sections);
   return (
     <div className="tab-fields">
       <div className="field">
         <label>游戏逻辑脚本（DSL）</label>
-        <textarea rows={14} className="code-area" value={game.scripts || ''}
+        <textarea rows={12} className="code-area" value={game.scripts || ''}
           onChange={(e) => setGame({ ...game, scripts: e.target.value })}
           placeholder="// 编写游戏逻辑 DSL。Agent 也可自动生成：" />
       </div>
@@ -548,6 +1039,38 @@ on hit(a, b): genplay::score / genplay::despawn / genplay::gameover
 on input.<key>: genplay::move / jump / fire / turn`}
         </pre>
       </div>
+
+      {/* Generated code sections produced by the edit_script tool. */}
+      {sectionNames.length > 0 && (
+        <div className="field" style={{ marginTop: 16 }}>
+          <label>AI 生成脚本片段</label>
+          {sectionNames.map((name) => (
+            <div key={name} className="code-block-wrap">
+              <div className="code-block-title">{name.toUpperCase()}</div>
+              <pre className="code-block">{sections[name]}</pre>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Lint report from lint_scripts tool. */}
+      {game.lastLint && (
+        <div className="field" style={{ marginTop: 16 }}>
+          <label>脚本检查报告
+            <span className={`lint-summary ${game.lastLint.summary.errors > 0 ? 'has-errors' : 'clean'}`}>
+              {game.lastLint.summary.errors} 错误 · {game.lastLint.summary.warnings} 警告 · {game.lastLint.summary.infos} 提示
+            </span>
+          </label>
+          <ul className="diag-list">
+            {[...(game.lastLint.dslIssues || []), ...(game.lastLint.sectionIssues || [])].map((issue, i) => (
+              <li key={i} className={`diag diag-${issue.level}`}>
+                <b>[{issue.level}] {issue.section || `第${issue.line || 0}行`}</b>：{issue.message}
+                {issue.fix && <span className="lint-fix"> → {issue.fix}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -670,6 +1193,7 @@ function TabTheme({ game, runEditorAction }) {
 
 function TabScenario({ game, runEditorAction }) {
   const cur = game.scenario;
+  const scenes = Array.isArray(game.scenes) ? game.scenes : [];
   return (
     <div className="tab-fields">
       <h4 className="tab-h">📖 剧情场景</h4>
@@ -700,8 +1224,99 @@ function TabScenario({ game, runEditorAction }) {
           </div>
         </div>
       )}
+
+      {/* Generated story narrative (generate_story tool). */}
+      {game.story && (
+        <div className="meta-section" style={{ marginTop: 24 }}>
+          <h5>📜 剧情大纲《{game.story.title}》</h5>
+          <div className="scenario-backdrop">
+            <b>世界观：</b>{game.story.setting}<br />
+            <b>主角：</b>{game.story.protagonist} · <b>反派：</b>{game.story.antagonist}
+          </div>
+          <p className="achievement-desc" style={{ marginTop: 8 }}>{game.story.premise}</p>
+          <ul className="scenario-chapters">
+            {game.story.chapters?.map((c) => (
+              <li key={c.id}>
+                <b>第{c.id}章 {c.name}：</b>{c.objective}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Generated progression / difficulty curve (design_progression tool). */}
+      {game.progression && (
+        <div className="meta-section" style={{ marginTop: 24 }}>
+          <h5>📈 难度曲线与关卡进度 <span className="analytics-genre">{game.progression.curve} · {game.progression.levelCount} 关</span></h5>
+          <div className="kpi-row" style={{ marginTop: 10 }}>
+            {game.progression.levels?.map((lvl) => (
+              <div key={lvl.index} className={`progression-node ${lvl.isBoss ? 'boss' : ''}`} title={lvl.name}>
+                <div className="prog-diff" style={{ width: `${Math.min(100, lvl.difficulty * 25)}%` }} />
+                <span className="prog-label">第{lvl.index}关</span>
+                <span className="prog-meta">{lvl.isBoss ? '👑 Boss' : `${lvl.enemies}敌`}</span>
+              </div>
+            ))}
+          </div>
+          <ul className="scenario-chapters" style={{ marginTop: 12 }}>
+            {game.progression.levels?.map((lvl) => (
+              <li key={lvl.index}>
+                <b>{lvl.name}</b>：{lvl.theme}
+                {lvl.narrative && <span style={{ color: 'var(--text-dim)' }}> — {lvl.narrative}</span>}
+                <span className="analytics-genre" style={{ marginLeft: 8 }}>难度 {lvl.difficulty} · 奖励 {lvl.reward}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Generated tutorial / onboarding (generate_tutorial tool). */}
+      {game.tutorial && (
+        <div className="meta-section" style={{ marginTop: 24 }}>
+          <h5>📖 新手引导教程 <span className="analytics-genre">{game.tutorial.style} · {game.tutorial.steps.length} 步</span></h5>
+          <ol className="scenario-chapters" style={{ paddingLeft: 20 }}>
+            {game.tutorial.steps?.map((step) => (
+              <li key={step.id} style={{ marginBottom: 6 }}>
+                <b>{step.text}</b>
+                {step.trigger && <span className="analytics-genre" style={{ marginLeft: 8 }}>触发：{step.trigger}</span>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* Multi-scene / level list managed by the manage_scenes tool. */}
+      <div className="meta-section" style={{ marginTop: 24 }}>
+        <h5>🗺️ 关卡 / 场景列表</h5>
+        {scenes.length === 0 ? (
+          <p className="edit-empty-sub">暂无多场景，可在左侧 Agent 中说「加一个Boss关卡」来创建。</p>
+        ) : (
+          <div className="achievement-list">
+            {scenes.map((s, i) => (
+              <div key={s.id} className="achievement-item">
+                <span className="achievement-ic">{sceneIcon(s.type)}</span>
+                <div className="achievement-body">
+                  <div className="achievement-name">#{i + 1} {s.name}</div>
+                  <div className="achievement-desc">类型: {s.type} · 背景: {s.background}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
+}
+
+function sceneIcon(type) {
+  switch (type) {
+    case 'menu': return '📋';
+    case 'boss': return '👹';
+    case 'cutscene': return '🎬';
+    case 'shop': return '🛒';
+    case 'gameover': return '💀';
+    case 'victory': return '🏆';
+    default: return '🗺️';
+  }
 }
 
 function TabCodeView({ game, codeView, runEditorAction }) {
@@ -958,6 +1573,51 @@ function TabAssets({ game, setGame, runEditorAction }) {
           ))}
         </div>
       </div>
+
+      {/* Audio playlist & SFX bank managed by the manage_audio tool. */}
+      {(() => {
+        const audio = game.audio || {};
+        const playlist = audio.playlist || [];
+        const sfxBank = audio.sfx || [];
+        return (
+          <div>
+            <h5 style={{ fontSize: '0.9rem', marginBottom: 10 }}>🎵 音频 ({playlist.length + sfxBank.length})</h5>
+            {playlist.length === 0 && sfxBank.length === 0 && (
+              <div style={{ color: 'var(--text-faint)', fontSize: '0.82rem', padding: 18, textAlign: 'center', background: 'var(--surface)', borderRadius: 12, border: '1px dashed var(--border)' }}>
+                暂无音频。可在对话中说「加一个战斗背景音乐」或「添加射击音效」→
+              </div>
+            )}
+            {playlist.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-faint)', marginBottom: 6 }}>背景音乐</div>
+                <div className="asset-list">
+                  {playlist.map((m, i) => (
+                    <div key={m.id || i} className="asset-card">
+                      <span className="asset-type-tag at-music">🎵 {m.mood || 'music'}</span>
+                      <h5>{m.name}</h5>
+                      <p>音量 {Math.round((m.volume ?? 0.8) * 100)}% · {m.loop ? '循环' : '单次'}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {sfxBank.length > 0 && (
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-faint)', marginBottom: 6 }}>音效</div>
+                <div className="asset-list">
+                  {sfxBank.map((s, i) => (
+                    <div key={s.id || i} className="asset-card">
+                      <span className="asset-type-tag at-sound">🔊 {s.trigger || 'sfx'}</span>
+                      <h5>{s.name}</h5>
+                      <p>音量 {Math.round((s.volume ?? 0.8) * 100)}%</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -974,10 +1634,11 @@ function TabMeta({ game, setGame, runEditorAction }) {
   };
 
   const achievements = meta.achievements || [
-    { id: 1, name: '初次胜利', desc: '完成第一局游戏', unlocked: false, icon: '🏆' },
-    { id: 2, name: '高分猎手', desc: '单局得分超过 1000', unlocked: false, icon: '🎯' },
-    { id: 3, name: '完美通关', desc: '不损失一命通过', unlocked: false, icon: '⭐' },
+    { id: 'ach_first_win', name: '初次胜利', desc: '完成第一局游戏', condition: 'wins >= 1', unlocked: false, icon: '🏆' },
+    { id: 'ach_high_score', name: '高分猎手', desc: '单局得分超过 1000', condition: 'score >= 1000', unlocked: false, icon: '🎯' },
+    { id: 'ach_perfect', name: '完美通关', desc: '不损失一命通过', condition: 'deaths == 0', unlocked: false, icon: '⭐' },
   ];
+  const leaderboards = meta.leaderboards || [];
 
   return (
     <div className="tab-fields">
@@ -1103,12 +1764,30 @@ function TabMeta({ game, setGame, runEditorAction }) {
               <div className="achievement-body">
                 <div className="achievement-name">{a.name}</div>
                 <div className="achievement-desc">{a.desc}</div>
+                {a.condition && <div className="achievement-cond">条件: {a.condition}</div>}
               </div>
               <span className="achievement-unlock">{a.unlocked ? '已解锁' : '未解锁'}</span>
             </div>
           ))}
         </div>
       </div>
+
+      {leaderboards.length > 0 && (
+        <div className="meta-section">
+          <h5>📊 排行榜</h5>
+          <div className="achievement-list">
+            {leaderboards.map((b) => (
+              <div key={b.id} className="achievement-item">
+                <span className="achievement-ic">🏅</span>
+                <div className="achievement-body">
+                  <div className="achievement-name">{b.label}</div>
+                  <div className="achievement-desc">计分: {b.scoring} · {b.order === 'asc' ? '越低越好' : '越高越好'}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="tweak-group" style={{ marginTop: 0 }}>
         <button className="btn-primary" onClick={() => runEditorAction('configure_game_meta', meta)}>
@@ -1175,4 +1854,395 @@ function Slider({ label, value, min, max, step, onChange }) {
         onChange={(e) => onChange(Number(e.target.value))} />
     </div>
   );
+}
+
+// ---------- Version History ----------
+function TabHistory({ game, onGamesChange, flash }) {
+  const [timeline, setTimeline] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [diff, setDiff] = useState(null);
+
+  const refresh = async () => {
+    if (!game?.id) return;
+    setLoading(true);
+    try {
+      const data = await api.listVersions(game.id);
+      setTimeline(data.result?.timeline || []);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
+  useEffect(() => { if (game?.id) refresh(); }, [game?.id]);
+
+  const snap = async () => {
+    if (!game?.id) return;
+    const label = `快照 ${new Date().toLocaleString('zh-CN', { hour12: false })}`;
+    try {
+      await api.createSnapshot(game.id, label);
+      flash('已创建版本快照');
+      refresh();
+    } catch (e) { alert(e.message); }
+  };
+
+  const restore = async (snapId) => {
+    if (!confirm('确认回滚到该版本？当前状态会自动保存为新快照。')) return;
+    try {
+      await api.restoreSnapshot(game.id, snapId);
+      flash('已回滚到该版本');
+      onGamesChange?.();
+      refresh();
+    } catch (e) { alert(e.message); }
+  };
+
+  const showDiff = async (snapId) => {
+    try {
+      const data = await api.diffSnapshot(game.id, snapId);
+      setDiff(data.result?.diff || {});
+    } catch (e) { console.error(e); }
+  };
+
+  return (
+    <div className="tab-history">
+      <div className="history-toolbar">
+        <button className="btn-primary" onClick={snap}>📷 创建快照</button>
+        <span className="history-count">共 {timeline.length} 个版本</span>
+      </div>
+
+      {loading && <div className="loading">加载中…</div>}
+
+      <div className="version-timeline">
+        {timeline.length === 0 && !loading && (
+          <div className="empty-state">还没有快照。点击「创建快照」保存当前游戏状态。</div>
+        )}
+        {timeline.map((v, i) => (
+          <div key={v.id} className="version-item">
+            <div className="version-marker">{timeline.length - i}</div>
+            <div className="version-body">
+              <div className="version-label">{v.label}</div>
+              <div className="version-time">{new Date(v.capturedAt).toLocaleString('zh-CN', { hour12: false })}</div>
+              {v.digest?.changes && Object.keys(v.digest.changes).length > 0 && (
+                <div className="version-changes">
+                  {Object.keys(v.digest.changes).map((f) => (
+                    <span key={f} className="change-chip">{f}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="version-actions">
+              <button className="btn-ghost btn-sm" onClick={() => showDiff(v.id)}>对比</button>
+              <button className="btn-ghost btn-sm" onClick={() => restore(v.id)}>回滚</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {diff && (
+        <div className="diff-panel">
+          <h5>字段差异对比</h5>
+          {Object.keys(diff).length === 0 ? (
+            <p className="muted">无差异</p>
+          ) : (
+            <table className="diff-table">
+              <thead><tr><th>字段</th><th>变化</th><th>快照大小</th><th>当前大小</th></tr></thead>
+              <tbody>
+                {Object.entries(diff).map(([field, info]) => (
+                  <tr key={field}>
+                    <td>{field}</td>
+                    <td>✓ changed</td>
+                    <td>{info.beforeBytes} B</td>
+                    <td>{info.afterBytes} B</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Analytics (SVG charts) ----------
+function TabAnalytics({ game, flash }) {
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadLatest = async () => {
+    if (!game?.id) return;
+    try {
+      const data = await api.getAnalytics(game.id);
+      setReport(data.report || null);
+    } catch (e) { console.error(e); }
+  };
+
+  useEffect(() => { if (game?.id) loadLatest(); }, [game?.id]);
+
+  const simulate = async () => {
+    if (!game?.id) return;
+    setLoading(true);
+    try {
+      const data = await api.simulateAnalytics(game.id);
+      setReport(data.result?.report || null);
+      flash(data.result?.summary || '分析完成');
+    } catch (e) { alert(e.message); }
+    setLoading(false);
+  };
+
+  if (!game) return <div className="empty-state">先选择一个游戏</div>;
+
+  return (
+    <div className="tab-analytics">
+      <div className="analytics-toolbar">
+        <button className="btn-primary" onClick={simulate} disabled={loading}>
+          {loading ? '分析中…' : '📊 模拟玩家行为'}
+        </button>
+        {report && (
+          <span className="analytics-genre">{report.genre} · seed {report.seed}</span>
+        )}
+      </div>
+
+      {/* Performance profile from profile_game tool. */}
+      {game.lastProfile && (
+        <div className="chart-card" style={{ marginBottom: 16 }}>
+          <h5>⚡ 性能评估 <span className="analytics-genre">{game.lastProfile.grade} 级 · {game.lastProfile.score} 分</span></h5>
+          <div className="kpi-row">
+            <Kpi label="预估 FPS" value={game.lastProfile.fps} />
+            <Kpi label="实体总数" value={game.lastProfile.entities?.total} />
+            <Kpi label="内存" value={`${game.lastProfile.memoryKB} KB`} />
+            <Kpi label="绘制调用" value={game.lastProfile.drawCalls} />
+          </div>
+          {game.lastProfile.bottlenecks?.length > 0 && (
+            <ul className="diag-list" style={{ marginTop: 12 }}>
+              {game.lastProfile.bottlenecks.map((b, i) => (
+                <li key={i} className={`diag diag-${b.severity}`}>
+                  <b>[{b.severity}] {b.area}</b>：{b.suggestion}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Accessibility report from audit_accessibility tool. */}
+      {game.lastAccessibility && (
+        <div className="chart-card" style={{ marginBottom: 16 }}>
+          <h5>♿ 无障碍评估 <span className="analytics-genre">{game.lastAccessibility.grade} 级 · {game.lastAccessibility.score} 分</span></h5>
+          <div className="kpi-row">
+            <Kpi label="严重" value={game.lastAccessibility.summary?.errors} />
+            <Kpi label="警告" value={game.lastAccessibility.summary?.warnings} />
+            <Kpi label="提示" value={game.lastAccessibility.summary?.infos} />
+          </div>
+          {game.lastAccessibility.remediation && (
+            <p style={{ marginTop: 10, color: 'var(--text-dim)', fontSize: '0.85rem' }}>{game.lastAccessibility.remediation}</p>
+          )}
+          {game.lastAccessibility.issues?.length > 0 ? (
+            <ul className="diag-list" style={{ marginTop: 12 }}>
+              {game.lastAccessibility.issues.map((iss, i) => (
+                <li key={i} className={`diag diag-${iss.severity}`}>
+                  <b>[{iss.severity}] {iss.area}</b>：{iss.message}
+                  {iss.fix && <span style={{ color: 'var(--text-dim)' }}> → {iss.fix}</span>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p style={{ marginTop: 10, color: 'var(--ok)' }}>✅ 未发现无障碍问题</p>
+          )}
+        </div>
+      )}
+
+      {/* Fun factor report from analyze_fun_factor tool. */}
+      {game.lastFunFactor && (
+        <div className="chart-card" style={{ marginBottom: 16 }}>
+          <h5>🎮 趣味评估 <span className="analytics-genre">{game.lastFunFactor.grade} 级 · {game.lastFunFactor.total} 分</span></h5>
+          <div className="kpi-row">
+            <Kpi label="机制" value={`${Math.round((game.lastFunFactor.scores?.mechanics || 0) * 100)}`} />
+            <Kpi label="反馈" value={`${Math.round((game.lastFunFactor.scores?.feedback || 0) * 100)}`} />
+            <Kpi label="进度" value={`${Math.round((game.lastFunFactor.scores?.progression || 0) * 100)}`} />
+            <Kpi label="挑战" value={`${Math.round((game.lastFunFactor.scores?.challenge || 0) * 100)}`} />
+            <Kpi label="重玩" value={`${Math.round((game.lastFunFactor.scores?.replayability || 0) * 100)}`} />
+            <Kpi label="打磨" value={`${Math.round((game.lastFunFactor.scores?.polish || 0) * 100)}`} />
+            <Kpi label="创新" value={`${Math.round((game.lastFunFactor.scores?.innovation || 0) * 100)}`} />
+          </div>
+          {game.lastFunFactor.analysis && (
+            <p style={{ marginTop: 10, color: 'var(--text-dim)', fontSize: '0.85rem' }}>{game.lastFunFactor.analysis}</p>
+          )}
+          {game.lastFunFactor.suggestions?.length > 0 && (
+            <ul className="diag-list" style={{ marginTop: 12 }}>
+              {game.lastFunFactor.suggestions.map((s, i) => (
+                <li key={i} className="diag diag-low">
+                  <b>[{s.dimension}] ${s.score}分</b>：{s.suggestion}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {!report && !loading && (
+        <div className="empty-state">点击「模拟玩家行为」生成留存、会话与难度曲线分析。</div>
+      )}
+
+      {report && (
+        <div className="analytics-grid">
+          {/* Retention curve */}
+          <div className="chart-card">
+            <h5>留存曲线</h5>
+            <RetentionChart points={report.retention?.points || []} />
+            <div className="kpi-row">
+              <Kpi label="D1" value={`${Math.round(report.retention.d1 * 100)}%`} />
+              <Kpi label="D7" value={`${Math.round(report.retention.d7 * 100)}%`} />
+              <Kpi label="D30" value={`${Math.round(report.retention.d30 * 100)}%`} />
+            </div>
+          </div>
+
+          {/* Session histogram */}
+          <div className="chart-card">
+            <h5>会话时长分布</h5>
+            <Histogram buckets={report.sessionHistogram?.buckets || []} />
+          </div>
+
+          {/* Difficulty heatmap */}
+          <div className="chart-card">
+            <h5>难度热力图</h5>
+            <Heatmap cells={report.difficultyHeatmap?.cells || []} />
+          </div>
+
+          {/* Drop-offs & suggestions */}
+          <div className="chart-card">
+            <h5>流失点 & 改进建议</h5>
+            {report.dropOffs?.length ? (
+              <ul className="drop-list">
+                {report.dropOffs.map((d, i) => (
+                  <li key={i}>
+                    <span className="drop-level">关卡 {d.level}</span>
+                    <span className={`drop-sev ${d.severity > 0.2 ? 'high' : d.severity > 0.1 ? 'mid' : 'low'}`}>
+                      {Math.round(d.severity * 100)}%
+                    </span>
+                    <span className="drop-kind">{d.kind}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="muted">未检测到明显流失点</p>}
+            <div className="suggestions">
+              {report.suggestions?.map((s, i) => (
+                <div key={i} className={`sug sug-${s.severity}`}>
+                  <strong>{s.area}</strong> {s.tip}
+                  {s.expectedLift && <em> · {s.expectedLift}</em>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Kpi({ label, value }) {
+  return (
+    <div className="kpi">
+      <div className="kpi-val">{value}</div>
+      <div className="kpi-lbl">{label}</div>
+    </div>
+  );
+}
+
+// Pure SVG retention curve.
+function RetentionChart({ points }) {
+  const W = 300, H = 120, pad = 28;
+  if (!points.length) return <div className="muted">暂无数据</div>;
+  const maxDay = Math.max(...points.map((p) => p.day), 30);
+  const xs = (d) => pad + (d / maxDay) * (W - pad * 2);
+  const ys = (r) => H - pad - r * (H - pad * 2);
+  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xs(p.day)} ${ys(p.rate)}`).join(' ');
+  return (
+    <svg width={W} height={H} className="chart-svg">
+      <defs>
+        <linearGradient id="retFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#ec4899" stopOpacity="0.35" />
+          <stop offset="1" stopColor="#ec4899" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {[0.25, 0.5, 0.75].map((g) => (
+        <line key={g} x1={pad} y1={ys(g)} x2={W - pad} y2={ys(g)} stroke="rgba(255,255,255,0.08)" />
+      ))}
+      <path d={`${path} L ${xs(maxDay)} ${H - pad} L ${xs(0)} ${H - pad} Z`} fill="url(#retFill)" />
+      <path d={path} fill="none" stroke="#ec4899" strokeWidth="2.5" strokeLinejoin="round" />
+      {points.map((p, i) => (
+        <circle key={i} cx={xs(p.day)} cy={ys(p.rate)} r="3" fill="#fff" stroke="#ec4899" strokeWidth="2" />
+      ))}
+      <text x={pad} y={H - 6} fontSize="10" fill="#8e82b3">D0</text>
+      <text x={W - pad} y={H - 6} fontSize="10" fill="#8e82b3" textAnchor="end">D30</text>
+    </svg>
+  );
+}
+
+// Pure SVG session length histogram.
+function Histogram({ buckets }) {
+  const W = 300, H = 120, pad = 24;
+  if (!buckets.length) return <div className="muted">暂无数据</div>;
+  const max = Math.max(...buckets.map((b) => b.share), 0.01);
+  const bw = (W - pad * 2) / buckets.length;
+  return (
+    <svg width={W} height={H} className="chart-svg">
+      {buckets.map((b, i) => {
+        const h = (b.share / max) * (H - pad * 2);
+        const x = pad + i * bw;
+        const y = H - pad - h;
+        return (
+          <g key={i}>
+            <rect x={x + 2} y={y} width={bw - 4} height={h} rx="4"
+              fill={`rgba(167,139,250,${0.4 + (b.share / max) * 0.6})`} />
+            <text x={x + bw / 2} y={H - 6} fontSize="9" fill="#8e82b3" textAnchor="middle">
+              {b.rangeMin}m
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// Pure SVG difficulty heatmap (horizontal bar per level).
+function Heatmap({ cells }) {
+  if (!cells.length) return <div className="muted">暂无数据</div>;
+  return (
+    <div className="heatmap">
+      {cells.map((c) => (
+        <div key={c.level} className="heat-row">
+          <span className="heat-lvl">L{c.level}</span>
+          <div className="heat-bar" style={{ width: `${c.difficulty * 100}%`,
+            background: `linear-gradient(90deg, #34d399, #fbbf24 ${c.mortality * 100}%, #f43f5e)` }} />
+          <span className="heat-mort">{Math.round(c.mortality * 100)}%</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Category icon for AI suggestion items.
+function suggestIcon(category) {
+  switch (category) {
+    case 'balance': return '⚖️';
+    case 'content': return '📦';
+    case 'polish': return '✨';
+    case 'accessibility': return '♿';
+    default: return '💡';
+  }
+}
+
+// Immutably set a value at a dotted path inside a config object.
+// Used by the edit_config_field editor action to patch the live config
+// without a full reload.
+function patchField(obj, path, value) {
+  const clone = structuredClone(obj || {});
+  const keys = String(path || '').split('.');
+  let cur = clone;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const k = keys[i];
+    if (cur[k] == null || typeof cur[k] !== 'object') cur[k] = {};
+    cur = cur[k];
+  }
+  cur[keys[keys.length - 1]] = value;
+  return clone;
 }
