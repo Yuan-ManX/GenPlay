@@ -28,8 +28,15 @@ function emit(event, payload) {
 // studio:set-theme { gameId, payload }
 // studio:focus-code { gameId, payload }
 // studio:apply-diff { gameId, before, after, diff, diagnostics }
+// studio:patch-music { gameId, payload: { tracks, action } }
+// studio:patch-dialogue { gameId, payload: { tree, action } }
+// studio:patch-audio { gameId, payload: { kind, action, ... } }
+// studio:undo-status { gameId, payload: { canUndo, canRedo, pastCount, futureCount } }
+// studio:undo-history { gameId, payload: { past, future } }
+// studio:set-story { gameId, payload: { story } }
 // sidebar:refresh-list { reason }
 // chat:append-suggestions { items: [{label, message}] }
+// chat:trigger-undo, chat:trigger-redo — keyboard shortcut signals
 
 export const events = { on, off, emit };
 export default events;
