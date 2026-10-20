@@ -58,7 +58,19 @@ export class AgentService {
   async runTool({ toolName, args = {}, sessionId }) {
     const sid = sessionId || this.newSession();
     const raw = await this.agent.tools.invoke(toolName, args, { sessionId: sid });
-    return { sessionId: sid, tool: toolName, result: raw, editorActions: raw.editorActions || [] };
+    const result = { sessionId: sid, tool: toolName, result: raw, editorActions: raw.editorActions || [] };
+    // Broadcast tool outcome to any WebSocket subscriber of this session
+    // so the studio reflects live changes without the client polling.
+    if (typeof this.broadcast === 'function') {
+      this.broadcast(`session:${sid}`, {
+        type: 'tool_result',
+        tool: toolName,
+        ok: raw.ok,
+        summary: raw.summary || null,
+        editorActions: result.editorActions,
+      });
+    }
+    return result;
   }
 
   newSession() {
