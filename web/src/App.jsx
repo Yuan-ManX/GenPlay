@@ -4,6 +4,7 @@ import events from './services/events.js';
 import Sidebar from './components/Sidebar.jsx';
 import ChatPanel from './components/ChatPanel.jsx';
 import StudioPanel from './components/StudioPanel.jsx';
+import CommandPalette from './components/CommandPalette.jsx';
 import './styles/global.css';
 
 export default function App() {
@@ -11,6 +12,7 @@ export default function App() {
   const [sessionId, setSessionId] = useState(null);
   const [selectedGameId, setSelectedGameId] = useState(null);
   const [games, setGames] = useState([]);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const refreshGames = async () => {
     try {
@@ -40,6 +42,45 @@ export default function App() {
       refreshGames();
     }));
     return () => offs.forEach((f) => f && f());
+  }, []);
+
+  // Global command palette: Cmd+K (macOS) / Ctrl+K (others).
+  // Keyboard shortcuts: Ctrl+Enter to run game, Ctrl+S to save,
+  // Ctrl+Z to undo, Ctrl+Y or Ctrl+Shift+Z to redo.
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+      // Ctrl+Enter: trigger run game via events bus.
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        events.emit('studio:open-tab', { tab: 'preview' });
+      }
+      // Ctrl+S: save current game (prevent browser save dialog).
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        events.emit('studio:save-game');
+      }
+      // Ctrl+Z: undo last action (skip when focus is in an input/textarea
+      // so the browser's native text undo still works for text editing).
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        const tag = (e.target?.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea') return;
+        e.preventDefault();
+        events.emit('chat:trigger-undo');
+      }
+      // Ctrl+Y or Ctrl+Shift+Z: redo.
+      if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+        const tag = (e.target?.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea') return;
+        e.preventDefault();
+        events.emit('chat:trigger-redo');
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, []);
 
   return (
@@ -78,6 +119,12 @@ export default function App() {
           </section>
         )}
       </main>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        selectedGameId={selectedGameId}
+        sessionId={sessionId}
+      />
     </div>
   );
 }
