@@ -29,6 +29,34 @@ import { dispatchCrewTool } from './dispatchCrew.js';
 import { exportGameTool } from './exportGame.js';
 import { importGameTool } from './importGame.js';
 import { screenshotGameTool } from './screenshotGame.js';
+import { gameAnalyticsTool } from './gameAnalytics.js';
+import { versionHistoryTool } from './versionHistory.js';
+import { agentExplainTool } from './agentExplain.js';
+import { editConfigFieldTool } from './editConfigField.js';
+import { editScriptTool } from './editScript.js';
+import { manageNpcTool } from './manageNpc.js';
+import { manageAssetTool } from './manageAsset.js';
+import { playTestTool } from './playTest.js';
+import { aiSuggestTool } from './aiSuggest.js';
+import { manageAchievementsTool } from './manageAchievements.js';
+import { manageScenesTool } from './manageScenes.js';
+import { manageLeaderboardTool } from './manageLeaderboard.js';
+import { translateGameTool } from './translateGame.js';
+import { balanceGameTool } from './balanceGame.js';
+import { manageAudioTool } from './manageAudio.js';
+import { generateStoryTool } from './generateStory.js';
+import { profileGameTool } from './profileGame.js';
+import { lintScriptsTool } from './lintScripts.js';
+import { controlRuntimeTool } from './controlRuntime.js';
+import { auditAccessibilityTool } from './auditAccessibility.js';
+import { designProgressionTool } from './designProgression.js';
+import { checkpointStateTool } from './checkpointState.js';
+import { generateGameTemplateTool } from './generateGameTemplate.js';
+import { analyzeFunFactorTool } from './analyzeFunFactor.js';
+import { generateTutorialTool } from './generateTutorial.js';
+import { undoRedoTool } from './undoRedo.js';
+import { composeMusicTool } from './composeMusic.js';
+import { generateDialogueTreeTool } from './generateDialogueTree.js';
 
 /**
  * ToolRegistry - GenPlay toolchain registry.
@@ -76,6 +104,34 @@ export class ToolRegistry {
     this.register(exportGameTool(this.services));
     this.register(importGameTool(this.services));
     this.register(screenshotGameTool(this.services));
+    this.register(gameAnalyticsTool(this.services));
+    this.register(versionHistoryTool(this.services));
+    this.register(agentExplainTool(this.services));
+    this.register(editConfigFieldTool(this.services));
+    this.register(editScriptTool(this.services));
+    this.register(manageNpcTool(this.services));
+    this.register(manageAssetTool(this.services));
+    this.register(playTestTool(this.services));
+    this.register(aiSuggestTool(this.services));
+    this.register(manageAchievementsTool(this.services));
+    this.register(manageScenesTool(this.services));
+    this.register(manageLeaderboardTool(this.services));
+    this.register(translateGameTool(this.services));
+    this.register(balanceGameTool(this.services));
+    this.register(manageAudioTool(this.services));
+    this.register(generateStoryTool(this.services));
+    this.register(profileGameTool(this.services));
+    this.register(lintScriptsTool(this.services));
+    this.register(controlRuntimeTool(this.services));
+    this.register(auditAccessibilityTool(this.services));
+    this.register(designProgressionTool(this.services));
+    this.register(checkpointStateTool(this.services));
+    this.register(generateGameTemplateTool(this.services));
+    this.register(analyzeFunFactorTool(this.services));
+    this.register(generateTutorialTool(this.services));
+    this.register(undoRedoTool(this.services));
+    this.register(composeMusicTool(this.services));
+    this.register(generateDialogueTreeTool(this.services));
   }
 
   setProvider(provider) {
@@ -92,6 +148,10 @@ export class ToolRegistry {
   }
   setAssetLibrary(assetLibrary) {
     this.services.assetLibrary = assetLibrary;
+    this.registerDefaults();
+  }
+  setUndoManager(undoManager) {
+    this.services.undoManager = undoManager;
     this.registerDefaults();
   }
 
