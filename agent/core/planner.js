@@ -40,6 +40,10 @@ export class TaskPlanner {
       // names from being misclassified as style requests (e.g. "创建视觉小说樱花之约").
       // Game template (BEFORE create_game so "模板" requests use the richer path)
       { name: 'generate_game_template', pattern: /(模板|template|快速创建|快速开始|预设游戏|套用模板|从模板)/i, args: ['genre', 'name', 'difficulty'] },
+      // Long-term memory recall must outrank create_game: "查一下记忆里做过的
+      // 像素风游戏" is a lookup, while the generic 做…游戏 pattern would
+      // otherwise build a brand-new game.
+      { name: 'recall_memory', pattern: /(回忆|记忆|recall|remember|跨会话|我们聊过|上次聊|之前聊|以前说过|历史对话|聊过什么)/i, args: ['query', 'scope'] },
       { name: 'create_game', pattern: /(创建|生成|做|create|build|make|新建|开发|设计一款).{0,20}(游戏|game)/i, args: ['name', 'genre'] },
       { name: 'delete_game', pattern: /(删除.*游戏|移除|destroy|delete|remove|drop|清空.*作品|不要了|删掉.*游戏)/i, args: ['gameId', 'confirm'] },
       // Undo / redo (BEFORE version_history so "撤销/重做" doesn't get caught
@@ -58,6 +62,9 @@ export class TaskPlanner {
       { name: 'remix_game', pattern: /(复刻|remix|fork.*game|二创|改编|基于.*做.*|参照.*创作|clone.*game)/i, args: ['shareCode', 'sourceGameId', 'name', 'tweak'] },
       // Multi-agent specialist crew: coordinated creative brainstorm
       { name: 'dispatch_crew', pattern: /(创作团|专家团|多智能体|协同构思|团队.*设计|crew|specialist|brainstorm.*team|一起.*构思|企划)/i, args: ['brief', 'genre', 'autoApply'] },
+      // Standalone playable build (BEFORE export_game so "导出可玩网页" builds a
+      // runnable HTML file instead of a JSON bundle).
+      { name: 'build_playable', pattern: /(可玩.*(?:html|网页|文件)|独立运行|单文件|html5|打包.*可玩|构建.*(?:可玩|html|网页)|导出.*可玩|生成.*可运行|离线.*游玩|build.*playable|playable)/i, args: ['gameId'] },
       // Portable bundle export / import for backup, sharing, migration
       { name: 'export_game', pattern: /(导出|export|备份|打包|下载.*游戏|归档|迁移出去)/i, args: ['gameId'] },
       { name: 'import_game', pattern: /(导入|import|恢复.*游戏|上传.*游戏包|加载.*bundle|从.*包.*创建)/i, args: ['bundle', 'newName'] },
@@ -77,6 +84,22 @@ export class TaskPlanner {
       { name: 'play_test', pattern: /(模拟运行|模拟测试|模拟|跑.*测试|play.?test|试运行|试跑|自动测试|压测)/i, args: ['gameId', 'duration', 'seed'] },
       // Proactive improvement suggestions with one-click follow-ups
       { name: 'ai_suggest', pattern: /(改进建议|优化建议|给.*建议|suggestions?|有什么.*改进|怎么.*优化|提升.*建议|给我.*点子.*改进)/i, args: ['gameId', 'category'] },
+      // Ambient particle effects (before generate_asset so "粒子/特效" requests
+      // route to the runtime FX layer instead of the static asset generator)
+      { name: 'manage_vfx', pattern: /(粒子|特效|particle|vfx|光点|火花|花瓣雨|气泡|星光|余烬|彩带|飘雪效果)/i, args: ['gameId', 'action', 'preset', 'name', 'intensity'] },
+      // Ambient environment: day/night cycle, weather, grading, vignette
+      { name: 'manage_environment', pattern: /(昼夜|白天|黑夜|夜晚|黄昏|黎明|天气|下雨|下雪|光照|暗角|环境氛围|environment|weather|day.?night|vignette)/i, args: ['gameId', 'action', 'cycle', 'weather', 'grading', 'vignette'] },
+      // Physics feel tuning (BEFORE edit_config_field so "把重力改成0.8"
+      // routes here and propagates to engine-facing player fields)
+      { name: 'configure_physics', pattern: /(物理|重力|跳跃力|跳跃高度|弹跳|弹性|摩擦|手感|physics|gravity|bounce)/i, args: ['gameId', 'gravity', 'jumpForce', 'moveSpeed', 'bounce', 'friction', 'maxJumps'] },
+      // Quest / mission system
+      { name: 'manage_quests', pattern: /(任务|quest|支线|主线|悬赏|目标列表)/i, args: ['gameId', 'action', 'questId', 'name', 'desc'] },
+      // In-game economy: currencies + shop items (BEFORE install_snippet which
+      // also matches the bare "金币" keyword for its collectible snippet)
+      { name: 'manage_economy', pattern: /(经济系统|货币|金币系统|商店|道具店|售价|定价|上架|下架|economy|currency|shop.?item|商品)/i, args: ['gameId', 'action', 'entryId', 'name', 'price', 'currency', 'icon', 'initial'] },
+      // Input control scheme: keyboard remap, touch pad, gamepad
+      // (BEFORE edit_config_field so "把跳跃键改成J" routes here)
+      { name: 'configure_controls', pattern: /(按键|键位|改键|操控方案|控制方案|触屏|手柄|gamepad|keybind|操作映射|自定义.*控制)/i, args: ['gameId', 'remap', 'touchPad', 'gamepad'] },
       // Granular config field read/write by dotted path (before tweak_params so
       // "把 player.speed 改成 7" routes here instead of the bulk tweak tool)
       { name: 'edit_config_field', pattern: /(把.{0,12}(?:改成|改为|调成|设为)|设置.{0,8}为|config\.|修改.*(?:字段|值|属性)|读取.*(?:配置|字段))/i, args: ['gameId', 'path', 'value'] },
@@ -245,9 +268,11 @@ export class TaskPlanner {
       name = name.replace(/的$/, '').trim();
       if (name) args.name = name;
 
-      // Genre only from text before the name marker to avoid mis-pick inside title
-      const cutPos = nameMatch ? nameMatch.index + (nameMatch[0]?.indexOf(nameMatch[1]) || 0) : message.length;
-      const genreScanArea = message.slice(0, cutPos).toLowerCase();
+      // Genre is resolved from the message with the discovered title removed.
+      // Scanning only the text before the name marker misses phrasings such as
+      // "叫霓虹夜城的射击游戏", while removing the cleaned title keeps genre
+      // words that are part of the title itself from being mis-picked.
+      const genreScanArea = (name ? message.split(name).join(' ') : message).toLowerCase();
       let genre = '';
       let bestLen = -1;
       for (const alias of Object.keys(GENRE_ALIASES)) {
@@ -282,6 +307,9 @@ export class TaskPlanner {
       'audit_accessibility', 'design_progression', 'checkpoint_state',
       'analyze_fun_factor', 'generate_tutorial',
       'undo_redo', 'compose_music', 'generate_dialogue_tree',
+      'build_playable',
+      'manage_vfx', 'manage_environment', 'configure_physics',
+      'manage_quests', 'manage_economy', 'configure_controls',
     ];
     if (targets.includes(intentName)) {
       // Match both English "game g_xxx" and Chinese "游戏 g_xxx" formats so
@@ -794,6 +822,148 @@ export class TaskPlanner {
       if (/极简|minimal/i.test(message)) args.style = 'minimal';
       else if (/情境|contextual/i.test(message)) args.style = 'contextual';
       else args.style = 'guided';
+    }
+
+    // ---- recall_memory ----
+    if (intentName === 'recall_memory') {
+      if (/资产|素材|美术/i.test(message)) args.scope = 'assets';
+      else if (/偏好|喜欢|口味|习惯/i.test(message)) args.scope = 'preferences';
+      else if (/游戏|作品/i.test(message)) args.scope = 'games';
+      else if (/对话|聊天|说过|聊过/i.test(message)) args.scope = 'conversations';
+      // Strip recall trigger words so the remainder becomes a clean query.
+      const cleaned = message
+        .replace(/记忆里|做过|里做|回忆|记忆|recall|remember|跨会话|我们聊过|上次聊|之前聊|聊过|说过|以前说过|历史对话|聊过什么|一下|关于|之前|上次|以前|帮我|请|查|找|的|我们|过/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (cleaned && cleaned.length >= 2) args.query = cleaned.slice(0, 60);
+    }
+
+    // ---- manage_vfx ----
+    if (intentName === 'manage_vfx') {
+      if (/列表|列出|查看|有哪些/i.test(message)) args.action = 'list';
+      else if (/删除|移除|去掉/i.test(message)) args.action = 'remove';
+      else if (/修改|更新|调整/i.test(message)) args.action = 'update';
+      else args.action = 'add';
+      // Preset detection: weather-adjacent words map to the matching emitter.
+      if (/下雨|雨滴|rain/i.test(message)) args.preset = 'rain';
+      else if (/下雪|雪花|snow/i.test(message)) args.preset = 'snow';
+      else if (/花瓣|petal/i.test(message)) args.preset = 'petals';
+      else if (/火花|spark/i.test(message)) args.preset = 'sparks';
+      else if (/气泡|bubble/i.test(message)) args.preset = 'bubbles';
+      else if (/余烬|火星|ember/i.test(message)) args.preset = 'embers';
+      else if (/彩带|五彩|confetti/i.test(message)) args.preset = 'confetti';
+      else if (/星光|星星|star/i.test(message)) args.preset = 'stars';
+      const im = message.match(/强度[：:\s]*(\d+(?:\.\d+)?)/);
+      if (im) args.intensity = Number(im[1]);
+      // For update/remove, reference the preset as the selector when no id given.
+      if ((args.action === 'update' || args.action === 'remove') && args.preset) {
+        args.vfxId = args.preset;
+      }
+    }
+
+    // ---- manage_environment ----
+    if (intentName === 'manage_environment') {
+      if (/清除|恢复默认|取消/i.test(message)) args.action = 'clear';
+      else args.action = 'set';
+      if (/自动.*昼夜|昼夜.*循环|auto/i.test(message)) args.cycle = 'auto';
+      else if (/黄昏|傍晚|dusk/i.test(message)) args.cycle = 'dusk';
+      else if (/黎明|清晨|dawn/i.test(message)) args.cycle = 'dawn';
+      else if (/黑夜|夜晚|晚上|night/i.test(message)) args.cycle = 'night';
+      else if (/白天|白昼|day/i.test(message)) args.cycle = 'day';
+      if (/下雨|雨/i.test(message)) args.weather = 'rain';
+      else if (/下雪|雪/i.test(message)) args.weather = 'snow';
+      else if (/花瓣/i.test(message)) args.weather = 'petals';
+      else if (/无天气|晴朗|晴天/i.test(message)) args.weather = 'none';
+      if (/暖色|温暖|warm/i.test(message)) args.grading = 'warm';
+      else if (/冷色|清冷|cool/i.test(message)) args.grading = 'cool';
+      else if (/黑白|单色|noir/i.test(message)) args.grading = 'noir';
+      else if (/鲜艳|浓烈|vivid/i.test(message)) args.grading = 'vivid';
+      const vm = message.match(/暗角[：:\s]*(\d+(?:\.\d+)?)/);
+      if (vm) args.vignette = Number(vm[1]) > 1 ? Number(vm[1]) / 100 : Number(vm[1]);
+    }
+
+    // ---- configure_physics ----
+    if (intentName === 'configure_physics') {
+      const grab = (re) => {
+        const m = message.match(re);
+        return m ? Number(m[1]) : undefined;
+      };
+      const gv = grab(/(?:重力|gravity)\D{0,6}?(\d+(?:\.\d+)?)/i);
+      if (gv !== undefined) args.gravity = gv;
+      const jf = grab(/(?:跳跃力|跳跃高度|jump)\D{0,6}?(\d+(?:\.\d+)?)/i);
+      if (jf !== undefined) args.jumpForce = jf;
+      const ms = grab(/(?:移动速度|移速)\D{0,6}?(\d+(?:\.\d+)?)/i);
+      if (ms !== undefined) args.moveSpeed = ms;
+      const bc = grab(/(?:弹性|弹跳|bounce)\D{0,6}?(0?\.\d+|1|0)/i);
+      if (bc !== undefined) args.bounce = bc;
+      const fr = grab(/(?:摩擦)\D{0,6}?(0?\.\d+|1|0)/i);
+      if (fr !== undefined) args.friction = fr;
+      if (/二段跳|双段跳/i.test(message)) args.maxJumps = 2;
+      else if (/三段跳/i.test(message)) args.maxJumps = 3;
+      else {
+        const mj = grab(/(\d)\s*段跳/);
+        if (mj !== undefined) args.maxJumps = mj;
+      }
+    }
+
+    // ---- manage_quests ----
+    if (intentName === 'manage_quests') {
+      if (/列表|列出|查看|有哪些/i.test(message)) args.action = 'list';
+      else if (/完成|达成|通关/i.test(message)) args.action = 'complete';
+      else if (/删除|移除/i.test(message)) args.action = 'remove';
+      else if (/修改|更新|改/i.test(message)) args.action = 'update';
+      else args.action = 'add';
+      // Support both "任务：X" and "名叫X的任务" name forms.
+      let nm = message.match(/名(?:叫|为|字)[：:\s]*["'「]?\s*([\u4e00-\u9fa5A-Za-z0-9 _\-·]{1,20}?)(?:的任务|的quest|[，,。.\s]|$)/i);
+      if (!nm) nm = message.match(/(?:任务|quest)(?:名|名字|名称)?[：:\s]*["'「]?\s*([\u4e00-\u9fa5A-Za-z0-9 _\-·]{1,20})/i);
+      if (nm) {
+        let name = nm[1].trim().replace(/\s+game.*$/i, '').trim();
+        name = name.replace(/的?(?:任务|quest)$/i, '').trim();
+        if (name) args.name = name;
+      }
+      const qid = message.match(/(quest_[a-z0-9]+)/i);
+      if (qid) args.questId = qid[1];
+    }
+
+    // ---- manage_economy ----
+    if (intentName === 'manage_economy') {
+      if (/列表|列出|查看|有哪些/i.test(message)) args.action = 'list';
+      else if (/下架|删除.*(?:商品|道具)|移除.*(?:商品|道具)/i.test(message)) args.action = 'remove_item';
+      else if (/删除.*货币|移除.*货币/i.test(message)) args.action = 'remove_currency';
+      else if (/修改.*(?:商品|道具)|更新.*(?:商品|道具)|改.*售价/i.test(message)) args.action = 'update_item';
+      else if (/修改.*货币|更新.*货币/i.test(message)) args.action = 'update_currency';
+      else if (/上架|添加.*(?:商品|道具)|加.*(?:商品|道具)|新增.*(?:商品|道具)/i.test(message)) args.action = 'add_item';
+      else if (/添加.*货币|加.*货币|新增.*货币/i.test(message)) args.action = 'add_currency';
+      else args.action = 'list';
+      const nm = message.match(/(?:叫|名为|名字|商品|货币|道具)[：:\s]*["'「]?\s*([\u4e00-\u9fa5A-Za-z0-9 _\-·]{1,20})/);
+      if (nm) {
+        let name = nm[1].trim().replace(/\s+game.*$/i, '').trim();
+        // Strip trailing price / quantity fragments so "回血药水售价 50" yields "回血药水".
+        name = name.replace(/(?:价格|售价|定价|初始)[：:\s]*\d+\s*$/i, '').trim();
+        name = name.replace(/的?(?:商品|货币|道具)$/i, '').trim();
+        if (name && name !== '商品' && name !== '货币' && name !== '道具') args.name = name;
+      }
+      const pm = message.match(/(?:价格|售价|定价)[：:\s]*(\d+)/);
+      if (pm) args.price = Number(pm[1]);
+      const im = message.match(/(?:初始|initial)[：:\s]*(\d+)/);
+      if (im) args.initial = Number(im[1]);
+    }
+
+    // ---- configure_controls ----
+    if (intentName === 'configure_controls') {
+      const ACTION_WORDS = { 跳跃: 'jump', 跳: 'jump', 射击: 'shoot', 攻击: 'shoot', 确认: 'confirm', 上: 'up', 下: 'down', 左: 'left', 右: 'right' };
+      const KEY_WORDS = { 空格: ' ', 回车: 'Enter', 上箭头: 'ArrowUp', 下箭头: 'ArrowDown', 左箭头: 'ArrowLeft', 右箭头: 'ArrowRight' };
+      const remap = {};
+      const re = /(跳跃|射击|攻击|确认|上|下|左|右|跳)(?:键)?\s*(?:改成|改为|设为|映射到)\s*([A-Za-z0-9]|空格|回车|上箭头|下箭头|左箭头|右箭头)/g;
+      let m;
+      while ((m = re.exec(message)) !== null) {
+        const action = ACTION_WORDS[m[1]];
+        const key = KEY_WORDS[m[2]] || m[2];
+        if (action) remap[action] = key;
+      }
+      if (Object.keys(remap).length) args.remap = remap;
+      if (/触屏|触摸|手机|touch/i.test(message)) args.touchPad = !/关闭.*触屏|不要触屏/i.test(message);
+      if (/手柄|gamepad/i.test(message)) args.gamepad = !/关闭.*手柄|不要手柄/i.test(message);
     }
 
     return args;
