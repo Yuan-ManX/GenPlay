@@ -154,6 +154,20 @@ export class AgentOrchestrator {
     if (game.lastFunFactor?.grade) bits.push(`fun=${game.lastFunFactor.grade}(${game.lastFunFactor.total})`);
     if (game.tutorial?.steps?.length) bits.push(`tutorial=${game.tutorial.steps.length}steps`);
     if (Array.isArray(game.checkpoints) && game.checkpoints.length) bits.push(`checkpoints=${game.checkpoints.length}`);
+    const questCount = Array.isArray(game.quests) ? game.quests.length : 0;
+    if (questCount) bits.push(`quests=${questCount}(${game.quests.filter((q) => q.status === 'done').length}done)`);
+    const eco = game.economy || {};
+    const curCount = Array.isArray(eco.currencies) ? eco.currencies.length : 0;
+    const shopCount = Array.isArray(eco.shop) ? eco.shop.length : 0;
+    if (curCount || shopCount) bits.push(`economy=${curCount}cur/${shopCount}items`);
+    const vfxCount = Array.isArray(game.vfx) ? game.vfx.filter((v) => v.enabled !== false).length : 0;
+    if (vfxCount) bits.push(`vfx=${vfxCount}`);
+    if (game.environment) {
+      const env = game.environment;
+      bits.push(`env=${env.cycle || 'day'}${env.weather && env.weather !== 'none' ? '+' + env.weather : ''}`);
+    }
+    if (cfg.physics && Object.keys(cfg.physics).length) bits.push('physics=tuned');
+    if (cfg.controls && (cfg.controls.touchPad || cfg.controls.gamepad || Object.keys(cfg.controls.remap || {}).length)) bits.push('controls=custom');
     if (game.theme) bits.push(`theme=${game.theme}`);
     if (game.scenario) bits.push(`scenario=${game.scenario}`);
     return bits.join(', ');
@@ -309,7 +323,7 @@ export class AgentOrchestrator {
           !this._allCompoundBucketsCovered(message, toolResults.map((t) => t.tool));
         if (last.result.ok && !hasCompoundRemainder && (
             this.isSufficientResult(last.tool, last.result) ||
-            ['tweak_params','apply_style_theme','apply_scenario','view_code','debug_with_diffs','publish_game','describe_game','debug_game','run_game','creative_ideate','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest'].includes(last.tool))) {
+            ['tweak_params','apply_style_theme','apply_scenario','view_code','debug_with_diffs','publish_game','describe_game','debug_game','run_game','creative_ideate','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls'].includes(last.tool))) {
           break;
         }
       }
@@ -393,6 +407,7 @@ export class AgentOrchestrator {
         'create_game', 'generate_game_template', 'edit_game', 'tweak_params',
         'apply_style_theme', 'apply_scenario', 'analyze_fun_factor',
         'edit_script', 'manage_audio', 'manage_achievements', 'manage_scenes',
+        'manage_vfx', 'manage_environment', 'manage_quests', 'configure_physics',
       ].includes(t.tool) && t.result.ok)
     );
     if (shouldReflect && this.reflector) {
@@ -555,13 +570,13 @@ export class AgentOrchestrator {
     if (toolName === 'remix_game') return !!(args.shareCode || args.sourceGameId || args.gameId);
     if (toolName === 'dispatch_crew') return !!args.brief || !!args.genre || true;
     if (toolName === 'edit_game') return !!args.gameId;
-    if (['debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree'].includes(toolName)) return !!args.gameId;
-    if (['list_games','generate_config','help','creative_ideate'].includes(toolName)) return true;
+    if (['debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree','build_playable','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls'].includes(toolName)) return !!args.gameId;
+    if (['list_games','generate_config','help','creative_ideate','recall_memory'].includes(toolName)) return true;
     return !!args;
   }
 
   toolNeedsGameId(toolName) {
-    return ['edit_game','debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree'].includes(toolName);
+    return ['edit_game','debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree','build_playable','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls'].includes(toolName);
   }
 
   argsProgressed(next, prev) {
@@ -578,7 +593,7 @@ export class AgentOrchestrator {
 
   isSufficientResult(toolName, r) {
     if (!r.ok) return true;
-    if (['create_game','generate_game_template','publish_game','run_game','debug_game','creative_ideate','rapid_iterate','generate_npc','generate_asset','procedural_level','configure_game_meta','remix_game','dispatch_crew','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree'].includes(toolName)) return true;
+    if (['create_game','generate_game_template','publish_game','run_game','debug_game','creative_ideate','rapid_iterate','generate_npc','generate_asset','procedural_level','configure_game_meta','remix_game','dispatch_crew','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree','build_playable','recall_memory','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls'].includes(toolName)) return true;
     return false;
   }
 
@@ -640,6 +655,10 @@ export class AgentOrchestrator {
 
   planCompoundExtras(message, currentTool, baseArgs, lastGameId) {
     const msg = String(message || '');
+    // Read-only lookups should not fan out into mutating extras. A recall
+    // query that mentions a theme keyword ("我们之前聊过的赛博朋克") must stay
+    // a recall instead of also trying to restyle the current game.
+    if (currentTool === 'recall_memory' || currentTool === 'list_games') return [];
     const buckets = this._intentBuckets();
     const out = [];
     const seen = new Set(currentTool ? [currentTool] : []);
