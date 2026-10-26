@@ -35,6 +35,7 @@ export function createAgent(config = {}) {
 
   const services = {
     gameService: config.gameService || null,
+    memory,
     provider,
     reflector,
     artifactMemory,
