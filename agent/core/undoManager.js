@@ -133,4 +133,6 @@ export const MODIFYING_TOOLS = new Set([
   'balance_game', 'translate_game', 'generate_story',
   'design_progression', 'generate_game_template', 'generate_tutorial',
   'compose_music', 'generate_dialogue_tree',
+  'manage_vfx', 'manage_environment', 'configure_physics',
+  'manage_quests', 'manage_economy', 'configure_controls',
 ]);
