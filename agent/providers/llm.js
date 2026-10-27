@@ -301,6 +301,21 @@ export class LLMProvider {
       else if (/查看|peek|状态/.test(msg)) out.action = 'peek';
       return { tool: 'undo_redo', args: out };
     }
+    // Long-term memory recall — before story/game tools so "上次聊过的剧情"
+    // reads memory instead of generating new content.
+    if (/(回忆|记忆|recall|remember|跨会话|我们聊过|上次聊|之前聊|以前说过|历史对话|聊过什么)/.test(msg) && names.includes('recall_memory')) {
+      const out = {};
+      if (/资产|素材|美术/.test(msg)) out.scope = 'assets';
+      else if (/偏好|喜欢|口味|习惯/.test(msg)) out.scope = 'preferences';
+      else if (/游戏|作品/.test(msg)) out.scope = 'games';
+      else if (/对话|聊天|说过|聊过/.test(msg)) out.scope = 'conversations';
+      return { tool: 'recall_memory', args: out };
+    }
+    // Standalone playable build — before export/run rules so "导出可玩网页"
+    // produces a runnable HTML file.
+    if (/(可玩.*(?:html|网页|文件)|独立运行|单文件|html5|打包.*可玩|构建.*(?:可玩|html|网页)|导出.*可玩|生成.*可运行|离线.*游玩|build.*playable|playable)/.test(msg) && names.includes('build_playable')) {
+      return { tool: 'build_playable', args: {} };
+    }
     if (/(无障碍|accessibility|可访问|对比度|色盲|color.?blind|字幕|subtitle|键盘.*操作)/.test(msg) && names.includes('audit_accessibility')) {
       return { tool: 'audit_accessibility', args: {} };
     }
