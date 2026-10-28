@@ -3,7 +3,10 @@
  * characters, items, tiles, music, SFX and UI. Couples with the frontend
  * asset generator panel. When LLM is enabled, the tool writes richer
  * visual prompts; otherwise it falls back to genre-driven presets.
+ * Every variant also carries a renderable SVG illustration generated locally.
  */
+import { svgForAsset } from '../assets/vector.js';
+
 const ASSET_TYPES = ['sprite', 'character', 'item', 'tile', 'background', 'music', 'sfx', 'ui'];
 
 const PRESETS = {
@@ -79,6 +82,14 @@ export function generateAssetTool(services = {}) {
       } else {
         variants = ruleVars(type, name || `asset_${Date.now()}`, count, base);
       }
+
+      // Attach a locally synthesized SVG illustration to every variant so the
+      // studio can display real artwork instead of placeholder metadata.
+      const seedBase = `${gameId || 'game'}:${name || type}`;
+      variants = variants.map((v, i) => ({
+        ...v,
+        svg: svgForAsset(type, v, `${seedBase}:${v.key || i}`),
+      }));
 
       // Record in artifact memory
       const ids = [];
