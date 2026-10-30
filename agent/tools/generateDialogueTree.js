@@ -37,8 +37,10 @@ export function generateDialogueTreeTool({ gameService, provider }) {
       const game = await gameService.getById(gameId);
       if (!game) return { ok: false, error: `Game not found: ${gameId}` };
 
-      const useBranches = typeof branches === 'number' ? Math.max(2, Math.min(4, branches)) : 3;
-      const useDepth = typeof depth === 'number' ? Math.max(2, Math.min(4, depth)) : 3;
+      // Defaults tuned so the generated tree stays compact and readable:
+      // branches=2, depth=2 -> ~7 nodes with ~4 endings; max 4x4 for epics.
+      const useBranches = typeof branches === 'number' ? Math.max(2, Math.min(4, branches)) : 2;
+      const useDepth = typeof depth === 'number' ? Math.max(2, Math.min(4, depth)) : 2;
       const useSeed = typeof seed === 'number' ? seed : Math.floor(Math.random() * 100000);
 
       const tree = generateDialogueTree({
