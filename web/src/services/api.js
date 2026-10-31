@@ -110,6 +110,106 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ tool, args, sessionId }),
     }),
+  // SSE streaming editor action: returns start + result events.
+  editorActionStream: async (tool, args = {}, sessionId, { onEvent } = {}) => {
+    const res = await fetch(`${BASE}/editor/action/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({ tool, args, sessionId }),
+    });
+    if (!res.ok || !res.body) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `请求失败 (${res.status})`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let finalResult = null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const frame = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const evt = _parseSseFrame(frame);
+        if (evt && onEvent) onEvent(evt);
+        if (evt?.type === 'result' && evt.data) finalResult = evt.data;
+      }
+    }
+    return finalResult || { ok: false, error: 'stream ended without result' };
+  },
+  // Batch editor actions: execute multiple tools sequentially.
+  editorBatch: (actions = [], sessionId) =>
+    request('/editor/batch', {
+      method: 'POST',
+      body: JSON.stringify({ actions, sessionId }),
+    }),
+  // AI suggestions for a game.
+  getSuggestions: (gameId) => request(`/editor/suggestions/${gameId}`),
+
+  // ---------- Version history ----------
+  listVersions: (gameId) => request(`/versions/${gameId}`),
+  createSnapshot: (gameId, label) =>
+    request(`/versions/${gameId}/snapshot`, { method: 'POST', body: JSON.stringify({ label }) }),
+  restoreSnapshot: (gameId, snapshotId) =>
+    request(`/versions/${gameId}/${snapshotId}/restore`, { method: 'POST' }),
+  diffSnapshot: (gameId, snapshotId) =>
+    request(`/versions/${gameId}/${snapshotId}/diff`),
+
+  // ---------- Analytics ----------
+  getAnalytics: (gameId) => request(`/analytics/${gameId}`),
+  simulateAnalytics: (gameId, { seed, useLlm } = {}) =>
+    request(`/analytics/${gameId}/simulate`, { method: 'POST', body: JSON.stringify({ seed, useLlm }) }),
+
+  // ---------- Preferences ----------
+  getPreferences: () => request('/preferences'),
+
+  // ---------- Community ----------
+  listCommunity: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return request(`/community${q ? '?' + q : ''}`);
+  },
+  likeCommunityGame: (id) => request(`/community/${id}/like`, { method: 'POST' }),
+  remixCommunityGame: (id, { name, tweak } = {}) =>
+    request(`/community/${id}/remix`, { method: 'POST', body: JSON.stringify({ name, tweak }) }),
+
+  // ---------- Templates ----------
+  listTemplates: () => request('/templates'),
+  applyTemplate: (genre, { name, difficulty } = {}) =>
+    request(`/templates/${genre}/apply`, { method: 'POST', body: JSON.stringify({ name, difficulty }) }),
+
+  // ---------- Crew ----------
+  dispatchCrew: ({ brief, genre, autoApply } = {}) =>
+    request('/crew/dispatch', { method: 'POST', body: JSON.stringify({ brief, genre, autoApply }) }),
+
+  // ---------- Direct tool-backed game endpoints (REST, no /editor/action proxy) ----------
+  exportGame: (id) => request(`/games/${id}/export`, { method: 'POST' }),
+  screenshotGame: (id, label) => request(`/games/${id}/screenshot`, { method: 'POST', body: JSON.stringify({ label }) }),
+  remixGame: (id, { name, tweak } = {}) => request(`/games/${id}/remix`, { method: 'POST', body: JSON.stringify({ name, tweak }) }),
+  profileGame: (id, duration) => request(`/games/${id}/profile`, { method: 'POST', body: JSON.stringify({ duration }) }),
+  playtestGame: (id, { duration, seed } = {}) => request(`/games/${id}/playtest`, { method: 'POST', body: JSON.stringify({ duration, seed }) }),
+  lintGame: (id, scope) => request(`/games/${id}/lint`, { method: 'POST', body: JSON.stringify({ scope }) }),
+  translateGame: (id, { targetLang, sourceLang, scope } = {}) => request(`/games/${id}/translate`, { method: 'POST', body: JSON.stringify({ targetLang, sourceLang, scope }) }),
+  balanceGame: (id, { targetDifficulty, duration, seed } = {}) => request(`/games/${id}/balance`, { method: 'POST', body: JSON.stringify({ targetDifficulty, duration, seed }) }),
+  analyzeFunFactor: (id) => request(`/games/${id}/fun-factor`, { method: 'POST' }),
+  generateTutorial: (id, { steps, style } = {}) => request(`/games/${id}/tutorial`, { method: 'POST', body: JSON.stringify({ steps, style }) }),
+  generateDialogueTree: (id, { character, topic, branches, depth, title } = {}) =>
+    request(`/games/${id}/dialogue-tree`, { method: 'POST', body: JSON.stringify({ character, topic, branches, depth, title }) }),
+  composeMusic: (id, { moods, mood, seed, bars } = {}) =>
+    request(`/games/${id}/compose-music`, { method: 'POST', body: JSON.stringify({ moods, mood, seed, bars }) }),
+  undoGame: (id) => request(`/games/${id}/undo`, { method: 'POST' }),
+  redoGame: (id) => request(`/games/${id}/redo`, { method: 'POST' }),
+  getHistory: (id) => request(`/games/${id}/history`),
+  // Build a standalone HTML5 game file (returns the HTML source).
+  buildPlayable: (id) => request(`/games/${id}/build`, { method: 'POST', body: JSON.stringify({ inline: true }) }),
+  // Direct URL of the playable build, usable in a new tab or an iframe.
+  playableUrl: (id) => `${BASE}/games/${id}/playable`,
+
+  // ---------- Long-term memory ----------
+  recallMemory: (query, scope = 'all', limit = 6) =>
+    request(`/chat/memory/recall?q=${encodeURIComponent(query || '')}&scope=${encodeURIComponent(scope)}&limit=${limit}`),
 };
 
 export default api;
