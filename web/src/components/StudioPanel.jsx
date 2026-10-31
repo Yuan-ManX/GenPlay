@@ -61,6 +61,7 @@ const TABS = [
   { key: 'theme', label: '主题', icon: '🎨' },
   { key: 'scenario', label: '剧情', icon: '📖' },
   { key: 'meta', label: '元设置', icon: '🛸' },
+  { key: 'systems', label: '系统', icon: '⚡' },
   { key: 'explore', label: '社区', icon: '🌐' },
   { key: 'code', label: '源码', icon: '🧾' },
   { key: 'debug', label: '调试', icon: '🛠️' },
@@ -126,6 +127,7 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
   const [undoStatus, setUndoStatus] = useState({ canUndo: false, canRedo: false, pastCount: 0, futureCount: 0 });
   const [undoHistory, setUndoHistory] = useState(null);
   const [musicPlaying, setMusicPlaying] = useState(null);
+  const [playableInfo, setPlayableInfo] = useState(null);
 
   useEffect(() => { if (gameId) loadGame(gameId); }, [gameId]);
 
@@ -193,6 +195,34 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
       else setGame((g) => g ? ({ ...g, meta: { ...(g.meta || {}), achievements: payload.achievements } }) : g);
       setTab('meta');
       flash(`成就列表已更新（${payload.action}）`);
+    }));
+    // Particle effects patch (manage_vfx tool).
+    offs.push(events.on('studio:patch-vfx', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, vfx: payload.vfx }) : g);
+      setTab('systems');
+      flash(`粒子特效已更新（${payload.action}）`);
+    }));
+    // Environment ambience (manage_environment tool).
+    offs.push(events.on('studio:set-environment', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, environment: payload.environment }) : g);
+      setTab('systems');
+      flash('环境氛围已更新');
+    }));
+    // Quests patch (manage_quests tool).
+    offs.push(events.on('studio:patch-quests', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, quests: payload.quests }) : g);
+      setTab('systems');
+      flash(`任务列表已更新（${payload.action}）`);
+    }));
+    // Economy patch (manage_economy tool).
+    offs.push(events.on('studio:patch-economy', ({ gameId: id, payload }) => {
+      if (!game || game.id !== id) loadGame(id);
+      else setGame((g) => g ? ({ ...g, economy: payload.economy }) : g);
+      setTab('systems');
+      flash(`经济系统已更新（${payload.action}）`);
     }));
     // Scenes patch (manage_scenes tool).
     offs.push(events.on('studio:patch-scenes', ({ gameId: id, payload }) => {
@@ -306,10 +336,13 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
       flash(`运行时控制：${payload.command}`);
     }));
     offs.push(events.on('studio:add-asset', ({ gameId: id, payload }) => {
+      // generate_asset emits the full payload; only the asset itself belongs
+      // in game.assets.
+      const asset = payload?.asset || payload;
       if (!game || game.id !== id) loadGame(id);
-      else setGame((g) => g ? ({ ...g, assets: [...(g.assets || []), payload] }) : g);
+      else setGame((g) => g ? ({ ...g, assets: [...(g.assets || []), asset] }) : g);
       setTab('assets');
-      flash(`已添加资产：${payload.name}`);
+      flash(`已添加资产：${asset?.name || 'asset'}`);
     }));
     offs.push(events.on('studio:add-npc', ({ gameId: id, payload }) => {
       if (!game || game.id !== id) loadGame(id);
@@ -399,6 +432,11 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
     }));
     offs.push(events.on('studio:undo-history', ({ gameId: id, payload }) => {
       if (!game || game.id === id) setUndoHistory(payload);
+    }));
+    // Standalone playable build (build_playable tool).
+    offs.push(events.on('studio:playable-ready', ({ gameId: id, payload }) => {
+      if (!game || game.id === id) setPlayableInfo(payload);
+      flash(`已构建可玩 HTML：${payload?.fileName || 'game.html'}（${payload?.sizeKb || 0} KB）`);
     }));
     // Keyboard shortcut signals from App.jsx.
     offs.push(events.on('chat:trigger-undo', () => {
@@ -559,6 +597,29 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
       } else {
         flash(res.error || '生成失败');
       }
+    } catch (err) { flash(err.message); }
+  };
+
+  // Build a standalone HTML5 game file and trigger a browser download.
+  const handleDownloadPlayable = async () => {
+    if (!game?.id) return;
+    try {
+      const built = await api.buildPlayable(game.id);
+      if (!built.ok || !built.html) {
+        flash(built.error || '构建失败');
+        return;
+      }
+      const blob = new Blob([built.html], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = built.fileName || `${game.name || 'genplay'}.html`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+      setPlayableInfo(built);
+      flash(`已导出可玩文件 ${built.fileName}（${built.sizeKb} KB）`);
     } catch (err) { flash(err.message); }
   };
 
@@ -886,6 +947,7 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
                 </div>
               )}
               {tab === 'meta' && <TabMeta game={game} setGame={setGame} runEditorAction={runEditorAction} />}
+              {tab === 'systems' && <TabSystems game={game} />}
               {tab === 'explore' && <TabExplore exploreFilter={exploreFilter} setExploreFilter={setExploreFilter} onPick={(g) => flash(`社区作品: ${g.name}`)} />}
               {tab === 'code' && <TabCodeView game={game} codeView={codeView} runEditorAction={runEditorAction} />}
               {tab === 'debug' && <TabDebug game={game} runResult={runResult} runEditorAction={runEditorAction} />}
@@ -912,11 +974,27 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
           <div className="preview-col">
             <div className="preview-col-head">
               <h4>🎯 实时预览</h4>
-              <span className="preview-col-hint">
-                键盘 · WASD / 方向键 / 空格 交互
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span className="preview-col-hint">
+                  键盘 · WASD / 方向键 / 空格 交互
+                </span>
+                <button
+                  className="btn-ghost btn-sm"
+                  onClick={handleDownloadPlayable}
+                  disabled={!game}
+                  title="导出可离线运行的单文件 HTML5 游戏"
+                >
+                  ⬇️ 可玩 HTML
+                </button>
+              </div>
             </div>
             <GamePreview game={game} />
+            {playableInfo && (
+              <div className="playable-info">
+                <span>🎮 {playableInfo.fileName} · {playableInfo.sizeKb} KB</span>
+                <a href={api.playableUrl(game.id)} target="_blank" rel="noreferrer">在新标签页打开</a>
+              </div>
+            )}
             {runResult && (
               <div className={`run-result ${runResult.status === 'ok' ? 'ok' : (runResult.issues?.length ? 'warn' : '')}`}>
                 <h4>运行报告 · {runResult.durationMs}ms</h4>
@@ -1535,11 +1613,19 @@ function TabAssets({ game, setGame, runEditorAction }) {
           )}
           {assets.map((a, i) => (
             <div key={i} className="asset-card">
+              {/* Locally synthesized SVG illustration attached by generate_asset. */}
+              {a.svg && (
+                <div
+                  className="asset-svg"
+                  aria-hidden="true"
+                  dangerouslySetInnerHTML={{ __html: a.svg }}
+                />
+              )}
               <span className={`asset-type-tag at-${a.type || 'sprite'}`}>
                 {ASSET_TYPES.find((t) => t.key === a.type)?.label || a.type}
               </span>
               <h5>{a.name}</h5>
-              <p>{a.description || a.spec || '—'}</p>
+              <p>{a.description || a.prompt || '—'}</p>
             </div>
           ))}
         </div>
@@ -1618,6 +1704,147 @@ function TabAssets({ game, setGame, runEditorAction }) {
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+// Runtime systems panel: physics feel, controls, environment, particle
+// effects, quests and in-game economy. All sections are agent-controllable
+// via the left conversation (configure_physics / configure_controls /
+// manage_environment / manage_vfx / manage_quests / manage_economy).
+function TabSystems({ game }) {
+  const config = game?.config || {};
+  const physics = config.physics || {};
+  const controls = config.controls || {};
+  const env = game?.environment || null;
+  const vfx = Array.isArray(game?.vfx) ? game.vfx : [];
+  const quests = Array.isArray(game?.quests) ? game.quests : [];
+  const economy = game?.economy || {};
+  const currencies = Array.isArray(economy.currencies) ? economy.currencies : [];
+  const shop = Array.isArray(economy.shop) ? economy.shop : [];
+
+  const PHYS_ROWS = [
+    ['gravity', '重力'], ['jumpForce', '跳跃力'], ['moveSpeed', '移动速度'],
+    ['bounce', '弹性'], ['friction', '摩擦'], ['maxJumps', '跳跃段数'],
+  ];
+  const CYCLE_LABELS = { day: '☀️ 白天', night: '🌙 黑夜', dusk: '🌆 黄昏', dawn: '🌅 黎明', auto: '🔄 自动昼夜' };
+  const FX_ICONS = { rain: '🌧️', snow: '❄️', petals: '🌸', sparks: '✨', bubbles: '🫧', stars: '⭐', embers: '🔥', confetti: '🎊' };
+
+  return (
+    <div className="tab-fields">
+      <h4 className="tab-h">⚡ 游戏系统</h4>
+
+      <div className="meta-section">
+        <h5>🏀 物理手感</h5>
+        {Object.keys(physics).length === 0 ? (
+          <p className="field-hint">默认物理参数。对 Agent 说“把重力调成 0.8，跳跃力 13，支持二段跳”即可调整。</p>
+        ) : (
+          <div className="chip-row">
+            {PHYS_ROWS.filter(([k]) => physics[k] !== undefined).map(([k, label]) => (
+              <span key={k} className="chip">{label} <b>{physics[k]}</b></span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="meta-section">
+        <h5>🎮 操控方案</h5>
+        <div className="chip-row">
+          <span className="chip">触屏 {controls.touchPad ? '✅' : '➖'}</span>
+          <span className="chip">手柄 {controls.gamepad ? '✅' : '➖'}</span>
+          {controls.sensitivity !== undefined && <span className="chip">灵敏度 <b>{controls.sensitivity}</b></span>}
+        </div>
+        {Object.keys(controls.remap || {}).length > 0 && (
+          <div className="chip-row">
+            {Object.entries(controls.remap).map(([action, key]) => (
+              <span key={action} className="chip">{action} → <b>{key === ' ' ? '空格' : key}</b></span>
+            ))}
+          </div>
+        )}
+        {!controls.touchPad && !controls.gamepad && !Object.keys(controls.remap || {}).length && controls.sensitivity === undefined && (
+          <p className="field-hint">默认键位（方向键 / WASD / 空格）。对 Agent 说“把跳跃键改成 J，开启触屏按键”即可自定义。</p>
+        )}
+      </div>
+
+      <div className="meta-section">
+        <h5>🌦️ 环境氛围</h5>
+        {!env ? (
+          <p className="field-hint">默认白昼无天气。对 Agent 说“切换到夜晚，下雪天气，加暗角”即可营造氛围。</p>
+        ) : (
+          <div className="chip-row">
+            <span className="chip">{CYCLE_LABELS[env.cycle] || env.cycle}</span>
+            {env.weather && env.weather !== 'none' && <span className="chip">{FX_ICONS[env.weather]} {env.weather}</span>}
+            {env.grading && <span className="chip">调色 {env.grading}</span>}
+            {env.vignette > 0 && <span className="chip">暗角 {Math.round(env.vignette * 100)}%</span>}
+          </div>
+        )}
+      </div>
+
+      <div className="meta-section">
+        <h5>✨ 粒子特效</h5>
+        {vfx.length === 0 ? (
+          <p className="field-hint">暂无特效。对 Agent 说“加一个樱花花瓣粒子特效”即可添加。</p>
+        ) : (
+          <div className="chip-row">
+            {vfx.map((e) => (
+              <span key={e.id} className={`chip ${e.enabled === false ? 'chip-off' : ''}`}>
+                {FX_ICONS[e.preset] || '✨'} {e.name} ×{e.intensity ?? 1}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="meta-section">
+        <h5>📜 任务系统</h5>
+        {quests.length === 0 ? (
+          <p className="field-hint">暂无任务。对 Agent 说“加一个主线任务叫收集五颗水晶”即可创建。</p>
+        ) : (
+          quests.map((q) => (
+            <div key={q.id} className="quest-card">
+              <div className="quest-head">
+                <span className={`quest-status ${q.status}`}>
+                  {q.status === 'done' ? '✅' : q.status === 'locked' ? '🔒' : '🎯'}
+                </span>
+                <b>{q.name}</b>
+                <span className="quest-rewards">
+                  {(q.rewards || []).map((r, i) => <span key={i} className="chip">+{r.amount} {r.type}</span>)}
+                </span>
+              </div>
+              <p className="field-hint">{q.desc}</p>
+              <ul className="quest-objs">
+                {(q.objectives || []).map((o, i) => (
+                  <li key={i} className={o.done ? 'done' : ''}>{o.done ? '☑' : '☐'} {o.text}</li>
+                ))}
+              </ul>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="meta-section">
+        <h5>💰 经济系统</h5>
+        {currencies.length === 0 && shop.length === 0 ? (
+          <p className="field-hint">暂无经济配置。对 Agent 说“加一种货币叫水晶，上架商品回血药水售价 50”即可搭建。</p>
+        ) : (
+          <>
+            {currencies.length > 0 && (
+              <div className="chip-row">
+                {currencies.map((c) => (
+                  <span key={c.id} className="chip">{c.icon} {c.name} · 初始 <b>{c.initial}</b></span>
+                ))}
+              </div>
+            )}
+            {shop.length > 0 && (
+              <div className="chip-row">
+                {shop.map((it) => (
+                  <span key={it.id} className="chip">{it.icon} {it.name} · <b>{it.price}</b> {it.currency}</span>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
