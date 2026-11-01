@@ -135,4 +135,5 @@ export const MODIFYING_TOOLS = new Set([
   'compose_music', 'generate_dialogue_tree',
   'manage_vfx', 'manage_environment', 'configure_physics',
   'manage_quests', 'manage_economy', 'configure_controls',
+  'configure_presentation',
 ]);
