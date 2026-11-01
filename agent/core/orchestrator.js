@@ -8,6 +8,40 @@ import { UndoManager, MODIFYING_TOOLS } from './undoManager.js';
 
 const ALL_GENRES = listGenres().map((g) => g.key);
 
+// Content-generation tools that legitimately start with a creation verb
+// ("生成配乐", "生成剧情", "生成资产"...). Messages routed to these must not be
+// re-prioritized into create_game just because they contain 生成/创建.
+const CONTENT_GENERATION_TOOLS = new Set([
+  'compose_music', 'manage_audio', 'generate_story', 'generate_dialogue_tree',
+  'generate_asset', 'generate_npc', 'generate_tutorial', 'generate_config',
+  'procedural_level', 'design_progression', 'edit_script', 'build_playable',
+]);
+
+// Human-readable labels used when asking the user to clarify which game a
+// game-targeted tool should run on.
+const TOOL_ACTION_LABELS = {
+  tweak_params: '调整参数', publish_game: '发布上线', run_game: '运行试玩',
+  debug_game: '调试', edit_game: '编辑', describe_game: '查看详情',
+  apply_style_theme: '应用主题', apply_scenario: '应用剧情', view_code: '查看代码',
+  debug_with_diffs: '深度调试', procedural_level: '生成关卡', generate_asset: '生成资源',
+  generate_npc: '生成 NPC', configure_game_meta: '配置元信息', rapid_iterate: '快速迭代',
+  save_game: '保存', delete_game: '删除', update_basic_info: '修改基本信息',
+  export_game: '导出', screenshot_game: '截图', game_analytics: '分析数据',
+  version_history: '版本管理', edit_config_field: '修改字段', edit_script: '生成脚本',
+  manage_npc: '管理 NPC', manage_asset: '管理资源', play_test: '自动试玩',
+  ai_suggest: '智能建议', manage_achievements: '管理成就', manage_scenes: '管理场景',
+  manage_leaderboard: '管理排行榜', translate_game: '翻译', balance_game: '平衡数值',
+  manage_audio: '管理音频', generate_story: '生成剧情', profile_game: '性能分析',
+  lint_scripts: '检查脚本', control_runtime: '运行时控制', audit_accessibility: '无障碍审查',
+  design_progression: '设计成长线', checkpoint_state: '检查点', analyze_fun_factor: '趣味性分析',
+  generate_tutorial: '生成教程', undo_redo: '撤销/重做', compose_music: '作曲',
+  generate_dialogue_tree: '生成对话树', build_playable: '导出可玩版',
+  manage_vfx: '管理特效', manage_environment: '管理环境', configure_physics: '配置物理',
+  manage_quests: '管理任务', manage_economy: '管理经济', configure_controls: '配置操控',
+  configure_presentation: '配置呈现', generate_config: '生成配置', install_snippet: '安装片段',
+  edit_node_graph: '编辑节点图', remix_game: '复刻',
+};
+
 /**
  * AgentOrchestrator v2
  * End-to-end reasoning pipeline for GenPlay Agent:
@@ -38,6 +72,15 @@ export class AgentOrchestrator {
     // messages and surfaces pending steps in the system prompt so the agent
     // stays focused on the user's original intent across turns.
     this.planMemory = planMemory || new PlanMemory();
+    // Pending "which game?" clarifications keyed by sessionId. When a
+    // game-targeted tool is detected without a resolvable target, the offered
+    // candidates are parked here so the next user reply can resume the intent.
+    this.pendingClarifications = new Map();
+    // Parked crew blueprints keyed by sessionId. When dispatch_crew returns a
+    // blueprint without auto-applying it, the blueprint waits here so a short
+    // confirmation ("落地这个蓝图") applies it directly without re-running the
+    // specialist crew.
+    this.pendingBlueprints = new Map();
     // Per-session decision traces for the agent_explain introspection tool.
     // Stores the last intent + structured tool-call trace for each session so
     // the user can ask "why did you do X" and get an auditable answer.
@@ -207,9 +250,38 @@ export class AgentOrchestrator {
       emit({ type: 'plan_detected', plan: { id: detectedPlan.id, steps: detectedPlan.steps.map((s) => s.label) } });
     }
 
+    // Clarification resume: if the previous turn asked "which game?", try to
+    // resolve this reply against the offered candidates before re-detecting
+    // intent. A bare index ("1" / "第 2 个"), a game name, or an id all count.
+    const pending = this.pendingClarifications.get(sessionId);
+    let resumed = null;
+    if (pending && pending.candidates?.length) {
+      resumed = this._resolveClarifiedGame(message, pending.candidates);
+    }
+    this.pendingClarifications.delete(sessionId);
+
+    // Blueprint landing fast path: a previous turn parked a crew blueprint
+    // (the tool's summary invites the user to reply "落地这个蓝图"). A short
+    // confirmation applies the parked blueprint exactly as previewed instead
+    // of re-running the whole specialist crew on a junk brief.
+    const parkedBp = this.pendingBlueprints.get(sessionId);
+    if (parkedBp && !resumed && this._isBlueprintLanding(message)) {
+      this.pendingBlueprints.delete(sessionId);
+      return await this._landParkedBlueprint({ sessionId, message, parked: parkedBp, context, emit });
+    }
+
     // Fast path intent detection
-    const ruleIntent = this.planner.detectIntent(message, history);
+    const ruleIntent = resumed
+      ? { name: pending.toolName, tool: pending.toolName, args: { ...pending.args, gameId: resumed } }
+      : this.planner.detectIntent(message, history);
     const toolName = ruleIntent.tool || ruleIntent.name;
+
+    // Clarification trigger: a game-targeted tool was detected but no target
+    // can be inferred from the message or the session focus. Ask once instead
+    // of letting the tool fail with a raw "missing gameId" error.
+    if (!resumed && this._needsGameClarification(toolName, ruleIntent.args, focusGameId)) {
+      return await this._clarifyGameTarget({ sessionId, message, toolName, args: ruleIntent.args, intent: ruleIntent, emit });
+    }
 
     let toolResults = [];
     let editorActions = [];
@@ -222,7 +294,7 @@ export class AgentOrchestrator {
     // tool (generate_game_template) so template requests keep their richer path.
     const planTools = [];
     let fastPathToolName = this.tools.has(toolName) && this.hasSufficientArgs(toolName, ruleIntent.args) ? toolName : null;
-    if ((/创建|生成|create|build|new|make/i.test(message)) && this.tools.has('create_game') && ruleIntent.name !== 'generate_game_template') {
+    if ((/创建|生成|create|build|new|make/i.test(message)) && this.tools.has('create_game') && ruleIntent.name !== 'generate_game_template' && !CONTENT_GENERATION_TOOLS.has(ruleIntent.name)) {
       const createIntent = this.planner.extractArgs ? this.planner.detectIntent(message, history) : null;
       if (createIntent?.name !== 'create_game' && createIntent?.name !== 'generate_game_template') {
         const createArgs = (this.planner.extractArgs && this.planner.extractArgs('create_game', message, history)) || {};
@@ -323,7 +395,7 @@ export class AgentOrchestrator {
           !this._allCompoundBucketsCovered(message, toolResults.map((t) => t.tool));
         if (last.result.ok && !hasCompoundRemainder && (
             this.isSufficientResult(last.tool, last.result) ||
-            ['tweak_params','apply_style_theme','apply_scenario','view_code','debug_with_diffs','publish_game','describe_game','debug_game','run_game','creative_ideate','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls'].includes(last.tool))) {
+            ['tweak_params','apply_style_theme','apply_scenario','view_code','debug_with_diffs','publish_game','describe_game','debug_game','run_game','creative_ideate','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls','configure_presentation'].includes(last.tool))) {
           break;
         }
       }
@@ -396,6 +468,22 @@ export class AgentOrchestrator {
       if (r.ok && this.isSufficientResult(nextTool, r)) break;
     }
 
+    // ---- Park crew blueprint for one-shot landing ----
+    // A dispatch_crew result that produced a blueprint but did not auto-apply
+    // is parked per-session, so the next short confirmation message can land
+    // it exactly as previewed (see _landParkedBlueprint).
+    const crewRun = toolResults.find((t) => t.tool === 'dispatch_crew' && t.result.ok && t.result.blueprint);
+    if (crewRun && !crewRun.result.applied) {
+      this.pendingBlueprints.set(sessionId, {
+        blueprint: crewRun.result.blueprint,
+        genre: crewRun.result.genre || crewRun.result.blueprint.genre || null,
+        brief: message,
+        parkedAt: Date.now(),
+      });
+    } else if (crewRun?.result?.applied) {
+      this.pendingBlueprints.delete(sessionId);
+    }
+
     // ---- Step 3: Self-reflection critique (optional rapid-iteration follow-up) ----
     let critique = null;
     // Trigger self-reflection after creation/edit tools AND after the richer
@@ -408,6 +496,7 @@ export class AgentOrchestrator {
         'apply_style_theme', 'apply_scenario', 'analyze_fun_factor',
         'edit_script', 'manage_audio', 'manage_achievements', 'manage_scenes',
         'manage_vfx', 'manage_environment', 'manage_quests', 'configure_physics',
+        'manage_economy', 'configure_controls', 'configure_presentation',
       ].includes(t.tool) && t.result.ok)
     );
     if (shouldReflect && this.reflector) {
@@ -570,13 +659,170 @@ export class AgentOrchestrator {
     if (toolName === 'remix_game') return !!(args.shareCode || args.sourceGameId || args.gameId);
     if (toolName === 'dispatch_crew') return !!args.brief || !!args.genre || true;
     if (toolName === 'edit_game') return !!args.gameId;
-    if (['debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree','build_playable','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls'].includes(toolName)) return !!args.gameId;
+    if (['debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree','build_playable','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls','configure_presentation'].includes(toolName)) return !!args.gameId;
     if (['list_games','generate_config','help','creative_ideate','recall_memory'].includes(toolName)) return true;
     return !!args;
   }
 
   toolNeedsGameId(toolName) {
-    return ['edit_game','debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree','build_playable','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls'].includes(toolName);
+    return ['edit_game','debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree','build_playable','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls','configure_presentation'].includes(toolName);
+  }
+
+  /**
+   * A tool needs clarification when it targets a game but neither the message
+   * nor the session focus provides one. Read-only/global tools are excluded
+   * because toolNeedsGameId only lists game-targeted ones.
+   */
+  _needsGameClarification(toolName, args, focusGameId) {
+    if (!toolName || !this.tools.has(toolName)) return false;
+    if (!this.toolNeedsGameId(toolName)) return false;
+    return !args?.gameId && !focusGameId;
+  }
+
+  /**
+   * Resolve a clarification reply against the offered candidates. Accepts a
+   * positional index ("1", "第 2 个"), a game name mentioned in the message,
+   * or an explicit id. Returns the game id or null when unresolved.
+   */
+  _resolveClarifiedGame(message, candidates) {
+    const msg = String(message || '').trim();
+    const idMatch = msg.match(/(?:game|游戏)?[:\s#_-]*(g_[a-z0-9]+)/i);
+    if (idMatch) {
+      const hit = candidates.find((c) => c.id === idMatch[1]);
+      if (hit) return hit.id;
+    }
+    const idxMatch = msg.match(/^第?\s*([1-9])\s*(?:个|款|部|号)?$/) || msg.match(/(?:第)\s*([1-9])\s*(?:个|款|部|号)/);
+    if (idxMatch) {
+      const idx = Number(idxMatch[1]) - 1;
+      if (candidates[idx]) return candidates[idx].id;
+    }
+    const lower = msg.toLowerCase();
+    // Longest name first so "云端旅人2" matches before "云端旅人".
+    const byName = [...candidates].sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0));
+    for (const c of byName) {
+      if (c.name && lower.includes(String(c.name).toLowerCase())) return c.id;
+    }
+    return null;
+  }
+
+  /**
+   * Ask the user which game a tool should target. Lists up to five most
+   * recently updated games and parks the pending intent on the session so the
+   * next reply can resume it. When the workspace is empty, guides the user
+   * to create a first game instead.
+   */
+  async _clarifyGameTarget({ sessionId, message, toolName, args, intent, emit }) {
+    const label = TOOL_ACTION_LABELS[toolName] || toolName;
+    let games = [];
+    if (this.gameService) {
+      try { games = (await this.gameService.list({ limit: 5 })) || []; } catch (_) { games = []; }
+    }
+    const candidates = games.map((g) => ({ id: g.id, name: g.name }));
+    let reply;
+    if (!candidates.length) {
+      reply = [
+        `你想要「${label}」，但工作区里还没有任何游戏。`,
+        '先告诉我想要什么游戏，例如：',
+        '  · "创建一个叫星海冒险的射击游戏"',
+        '  · "给我 3 个原创游戏概念"',
+        '搭好之后我立刻帮你继续。',
+      ].join('\n');
+    } else {
+      const lines = candidates.map((c, i) => `  ${i + 1}. 《${c.name}》(game#${c.id})`);
+      reply = [
+        `你想要「${label}」，想对哪个游戏操作？最近的游戏：`,
+        ...lines,
+        '直接回复序号、名称或 game#id 即可。',
+      ].join('\n');
+      this.pendingClarifications.set(sessionId, { toolName, args: { ...args }, candidates });
+    }
+    if (emit) {
+      emit({ type: 'reply', reply });
+      emit({ type: 'done', result: { sessionId, reply, intent, toolTrace: [], toolResults: [], editorActions: [], clarification: true, done: true } });
+    }
+    this.memory.push(sessionId, { role: 'user', content: message });
+    this.memory.push(sessionId, { role: 'assistant', content: reply, meta: { intent, clarification: true } });
+    return {
+      sessionId, reply, intent, toolTrace: [], toolResults: [], editorActions: [],
+      clarification: true, done: true,
+    };
+  }
+
+  /**
+   * Detect a short confirmation that asks to land the parked crew blueprint,
+   * e.g. "落地这个蓝图" / "就按这个方案来" / "应用蓝图". Kept narrow so normal
+   * editing chatter never triggers the apply cascade accidentally.
+   */
+  _isBlueprintLanding(message) {
+    const msg = String(message || '').trim();
+    if (!msg || msg.length > 40) return false;
+    return /(落地|应用|采用|实施|执行).{0,8}(蓝图|方案|企划)/.test(msg)
+      || /(蓝图|方案|企划).{0,4}(落地|应用|创建|生成)/.test(msg)
+      || /^(就|好的?|行|可以)?\s*(按|用|照).{0,4}(这个|该)(蓝图|方案|企划)/.test(msg)
+      || /^落地$/.test(msg);
+  }
+
+  /**
+   * Land a previously parked crew blueprint: invoke dispatch_crew with the
+   * parked blueprint object so the tool skips re-brainstorming and runs the
+   * create -> theme -> scenario cascade directly. The result shape mirrors
+   * the normal handleMessage tail so the frontend (SSE + editor actions)
+   * cannot tell the two paths apart.
+   */
+  async _landParkedBlueprint({ sessionId, message, parked, context, emit }) {
+    const args = {
+      brief: parked.brief || message,
+      genre: parked.genre || undefined,
+      autoApply: true,
+      parkedBlueprint: parked.blueprint,
+    };
+    const intent = { name: 'dispatch_crew', tool: 'dispatch_crew', args: { brief: args.brief, genre: args.genre, autoApply: true }, resumedBlueprint: true };
+    if (emit) emit({ type: 'plan', tools: ['dispatch_crew'] });
+    if (emit) emit({ type: 'tool_start', tool: 'dispatch_crew', args: intent.args });
+    const r = await this.runTool('dispatch_crew', args, context, sessionId);
+    const toolResults = [{ tool: 'dispatch_crew', result: r }];
+    if (emit) emit({ type: 'tool_end', tool: 'dispatch_crew', ok: r.ok, summary: r.summary });
+    const editorActions = r.editorActions ? [...r.editorActions] : [];
+    const gameSnap = r.game || null;
+    const lastGameId = r.gameId || gameSnap?.id || null;
+
+    this.artifactMemory?.recordToolUsage?.('dispatch_crew', intent.args);
+    if (gameSnap) {
+      this.artifactMemory.recordGame(gameSnap, [gameSnap.genre]);
+      if (gameSnap.theme) this.artifactMemory.recordTheme(gameSnap.theme, gameSnap.id);
+      if (gameSnap.scenario) this.artifactMemory.recordScenario(gameSnap.scenario, gameSnap.id);
+    }
+    if (r.gameId) this.recordIntentGameId(sessionId, intent, r.gameId);
+
+    const session = this.memory.getSession(sessionId);
+    const reply = this.synthesizeReply({
+      userMessage: message,
+      intent,
+      toolResults,
+      critique: null,
+      fallbackHistory: [],
+      sessionSummary: session?.summary,
+      sessionId,
+    });
+    if (emit) emit({ type: 'reply', reply });
+    this._recordTrace(sessionId, message, intent, toolResults);
+
+    const meta = { intent, toolTrace: [{ tool: 'dispatch_crew', ok: r.ok }], editorActions };
+    if (lastGameId) meta.currentGameId = lastGameId;
+    this.memory.push(sessionId, { role: 'user', content: message });
+    this.memory.push(sessionId, { role: 'assistant', content: reply, meta });
+
+    const topLevel = {
+      sessionId, reply, intent,
+      toolTrace: meta.toolTrace, toolResults, editorActions,
+      currentGameId: lastGameId, critique: null, done: true,
+    };
+    if (gameSnap) topLevel.game = gameSnap;
+    if (r.blueprint) topLevel.blueprint = r.blueprint;
+    if (r.specialists) topLevel.specialists = r.specialists;
+    if (r.applied) topLevel.crewApplied = r.applied;
+    if (emit) emit({ type: 'done', result: topLevel });
+    return topLevel;
   }
 
   argsProgressed(next, prev) {
@@ -593,7 +839,7 @@ export class AgentOrchestrator {
 
   isSufficientResult(toolName, r) {
     if (!r.ok) return true;
-    if (['create_game','generate_game_template','publish_game','run_game','debug_game','creative_ideate','rapid_iterate','generate_npc','generate_asset','procedural_level','configure_game_meta','remix_game','dispatch_crew','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree','build_playable','recall_memory','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls'].includes(toolName)) return true;
+    if (['create_game','generate_game_template','publish_game','run_game','debug_game','creative_ideate','rapid_iterate','generate_npc','generate_asset','procedural_level','configure_game_meta','remix_game','dispatch_crew','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree','build_playable','recall_memory','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls','configure_presentation','explore_community','manage_community'].includes(toolName)) return true;
     return false;
   }
 
@@ -626,7 +872,7 @@ export class AgentOrchestrator {
       { tool: 'describe_game',      re: /(概览|介绍|详情|describe|details?|情况)/i },
       { tool: 'creative_ideate',    re: /(创意|灵感|概念|给点主意|inspire|ideas?|脑暴|脑洞|mashup|混搭|想法)/i },
       { tool: 'rapid_iterate',      re: /(快速迭代|一键优化|做得更好|润色|打磨|polish|improve|iterate|再优化|升级.*游戏)/i },
-      { tool: 'generate_asset',     re: /(生成.*资源|素材|sprite|背景|音乐|音效|ui|asset|图标|贴图)/i },
+      { tool: 'generate_asset',     re: /(生成.*资源|素材|sprite|背景图|背景画面|美术|立绘|ui|asset|图标|贴图)/i },
       { tool: 'generate_npc',       re: /(npc|角色|人物|村民|商人|对话.*角色|生成.*(npc|角色))/i },
       { tool: 'procedural_level',   re: /(生成.*关卡|地图|地牢|迷宫|路径|关卡.*生成|level|map|dungeon|地形)/i },
       { tool: 'configure_game_meta',re: /(多人|联机|合作|协作|成就|排行榜|存档|无障碍|变现|广告|内购|multiplayer|achievement|leaderboard|accessibility)/i },
@@ -658,7 +904,7 @@ export class AgentOrchestrator {
     // Read-only lookups should not fan out into mutating extras. A recall
     // query that mentions a theme keyword ("我们之前聊过的赛博朋克") must stay
     // a recall instead of also trying to restyle the current game.
-    if (currentTool === 'recall_memory' || currentTool === 'list_games') return [];
+    if (currentTool === 'recall_memory' || currentTool === 'list_games' || currentTool === 'manage_community') return [];
     const buckets = this._intentBuckets();
     const out = [];
     const seen = new Set(currentTool ? [currentTool] : []);
@@ -882,5 +1128,6 @@ export class AgentOrchestrator {
     this.planMemory?.clear(sessionId);
     this.lastIntents.delete(sessionId);
     this.lastTraces.delete(sessionId);
+    this.pendingClarifications.delete(sessionId);
   }
 }
