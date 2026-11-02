@@ -44,7 +44,9 @@ export class TaskPlanner {
       // 像素风游戏" is a lookup, while the generic 做…游戏 pattern would
       // otherwise build a brand-new game.
       { name: 'recall_memory', pattern: /(回忆|记忆|recall|remember|跨会话|我们聊过|上次聊|之前聊|以前说过|历史对话|聊过什么)/i, args: ['query', 'scope'] },
-      { name: 'create_game', pattern: /(创建|生成|做|create|build|make|新建|开发|设计一款).{0,20}(游戏|game)/i, args: ['name', 'genre'] },
+      // The trailing game-id guard keeps "生成配乐 game#xxx" from being read as
+      // a create request just because the literal word "game" appears in the ID.
+      { name: 'create_game', pattern: /(创建|生成|做|create|build|make|新建|开发|设计一款).{0,20}(?:游戏|game)(?!#)/i, args: ['name', 'genre'] },
       { name: 'delete_game', pattern: /(删除.*游戏|移除|destroy|delete|remove|drop|清空.*作品|不要了|删掉.*游戏)/i, args: ['gameId', 'confirm'] },
       // Undo / redo (BEFORE version_history so "撤销/重做" doesn't get caught
       // by the version-snapshot "回滚" keyword). Undo/redo is about immediate
@@ -100,6 +102,10 @@ export class TaskPlanner {
       // Input control scheme: keyboard remap, touch pad, gamepad
       // (BEFORE edit_config_field so "把跳跃键改成J" routes here)
       { name: 'configure_controls', pattern: /(按键|键位|改键|操控方案|控制方案|触屏|手柄|gamepad|keybind|操作映射|自定义.*控制)/i, args: ['gameId', 'remap', 'touchPad', 'gamepad'] },
+      // Immersive presentation layer: reduced motion, colorblind palette,
+      // HUD scale, best-score display and achievement toasts.
+      // (BEFORE edit_config_field so "把界面缩放改成1.2" routes here)
+      { name: 'configure_presentation', pattern: /(减弱动态|减少动态|关闭震动|禁用抖动|色盲|色弱|hud|界面缩放|界面大小|显示最佳分数|显示最高分|隐藏.*最佳.*分数|成就弹窗|沉浸体验|presentation|reduced.?motion|colorblind)/i, args: ['gameId', 'volume', 'muted', 'reducedMotion', 'colorblind', 'hudScale', 'showBestScore', 'achievementToasts'] },
       // Granular config field read/write by dotted path (before tweak_params so
       // "把 player.speed 改成 7" routes here instead of the bulk tweak tool)
       { name: 'edit_config_field', pattern: /(把.{0,12}(?:改成|改为|调成|设为)|设置.{0,8}为|config\.|修改.*(?:字段|值|属性)|读取.*(?:配置|字段))/i, args: ['gameId', 'path', 'value'] },
@@ -121,7 +127,7 @@ export class TaskPlanner {
       // Auto-balance using playtest feedback
       { name: 'balance_game', pattern: /(平衡|balance|调平衡|自动平衡|难度平衡|数值平衡|平衡测试|平衡调整)/i, args: ['gameId', 'duration', 'seed', 'targetDifficulty'] },
       // Audio / music / sfx management
-      { name: 'manage_audio', pattern: /(音乐|music|音效|sfx|sound|audio|bgm|背景音乐|加.*音乐|添加.*音乐|加.*音效|添加.*音效|播放.*音乐|播放.*音效)/i, args: ['gameId', 'kind', 'action', 'entryId', 'name', 'mood', 'trigger', 'volume', 'loop', 'order'] },
+      { name: 'manage_audio', pattern: /(音乐|music|音效|sfx|sound|audio|bgm|背景音乐|静音|取消静音|音量|停止.*(?:音乐|播放)|mute|unmute|volume|加.*音乐|添加.*音乐|加.*音效|添加.*音效|播放.*音乐|播放.*音效)/i, args: ['gameId', 'kind', 'action', 'entryId', 'name', 'mood', 'trigger', 'volume', 'loop', 'order'] },
       // Story / narrative generation
       { name: 'generate_story', pattern: /(剧情|故事|story|narrative|叙事|生成.*剧情|生成.*故事|写.*剧情|写.*故事|编.*剧情|编.*故事|剧情大纲)/i, args: ['gameId', 'genre', 'title', 'tone', 'chapters'] },
       // Dialogue tree generation (BEFORE install_snippet which also matches "对话树").
@@ -150,6 +156,13 @@ export class TaskPlanner {
         name: 'creative_ideate',
         pattern: /(创意|构思|灵感|混搭|想一个|brainstorm|mashup|idea|创新|提案).{0,40}(游戏|玩法|方向|风格|)/i,
         args: ['count', 'mashup'],
+      },
+      // Community interactions (comments / likes / plays) outrank the generic
+      // browse rule so "给作品评论" doesn't fall through to a plain listing.
+      {
+        name: 'manage_community',
+        pattern: /(评论|留言|点赞|点个赞|赞一下|游玩量|播放量|玩过多少次|社区统计|作品详情|分享码|share.?code|comment|like.*(?:作品|game)|community.*(?:detail|comment))/i,
+        args: ['action', 'shareCode', 'author', 'text', 'limit'],
       },
       {
         name: 'explore_community',
@@ -310,6 +323,7 @@ export class TaskPlanner {
       'build_playable',
       'manage_vfx', 'manage_environment', 'configure_physics',
       'manage_quests', 'manage_economy', 'configure_controls',
+      'configure_presentation',
     ];
     if (targets.includes(intentName)) {
       // Match both English "game g_xxx" and Chinese "游戏 g_xxx" formats so
@@ -356,6 +370,36 @@ export class TaskPlanner {
       if (cm) args.count = Math.max(1, Math.min(12, Number(cm[1])));
       const mashupMatch = message.match(/混搭(?!.*?不)[：:\s]*([\u4e00-\u9fa5A-Za-z0-9、,\s]{2,40})/);
       if (mashupMatch) args.mashup = mashupMatch[1].trim();
+    }
+
+    // ---- manage_community ----
+    if (intentName === 'manage_community') {
+      if (/评论列表|查看评论|查看.*评论|有哪些评论|评论.*列表|comments?/i.test(message)) args.action = 'comments';
+      else if (/评论|留言|comment/i.test(message)) args.action = 'comment';
+      else if (/点赞|点个赞|赞一下|like/i.test(message)) args.action = 'like';
+      else if (/游玩量|播放量|玩过多少次|试玩|play/i.test(message)) args.action = 'play';
+      else if (/详情|信息|detail/i.test(message)) args.action = 'detail';
+      else args.action = 'list';
+
+      const codeMatch = message.match(/gp_[a-z0-9]{4,}/i) || message.match(/[#]([a-z0-9_-]{4,})/i);
+      if (codeMatch) args.shareCode = codeMatch[1] || codeMatch[0];
+
+      const authorMatch = message.match(/(?:作者|署名|author)[：:\s]*([\u4e00-\u9fa5A-Za-z0-9_\-]{1,20})/i);
+      if (authorMatch) args.author = authorMatch[1];
+
+      if (args.action === 'comment') {
+        // Prefer the text after an explicit colon; otherwise take whatever
+        // follows the comment verb, then strip the share code and author clause.
+        const afterColon = message.match(/[：:]\s*([^：:]{1,280})/);
+        let body = afterColon ? afterColon[1] : message.replace(/^.*?(?:评论|留言|comment)(?:一下)?/i, '');
+        body = body
+          .replace(/gp_[a-z0-9]{4,}/gi, '')
+          .replace(/(?:作者|署名|author)[：:\s]*[\u4e00-\u9fa5A-Za-z0-9_\-]{1,20}/i, '')
+          .trim();
+        if (body) args.text = body.slice(0, 280);
+      }
+      const lm = message.match(/前(\d+)|limit\s*[:=]?\s*(\d+)|(\d+)条/);
+      if (lm) args.limit = Number(lm[1] || lm[2] || lm[3]);
     }
 
     if (intentName === 'explore_community') {
@@ -695,7 +739,12 @@ export class TaskPlanner {
     if (intentName === 'manage_audio') {
       if (/音效|sfx|sound\b/i.test(message) && !/背景音乐|bgm|music/i.test(message)) args.kind = 'sfx';
       else args.kind = 'music';
-      if (/列表|列出|查看/i.test(message)) args.action = 'list';
+      // Runtime playback controls take precedence over playlist edits.
+      if (/取消静音|解除静音|unmute/i.test(message)) args.action = 'unmute';
+      else if (/静音|mute/i.test(message)) args.action = 'mute';
+      else if (/停止.*(?:音乐|播放|播放器)|stop.*(?:music|audio)/i.test(message)) args.action = 'stop';
+      else if (/(?:音量|volume)/i.test(message) && !/播放|列表|添加|加.*音效|加.*音乐/i.test(message)) args.action = 'volume';
+      else if (/列表|列出|查看/i.test(message)) args.action = 'list';
       else if (/重排|排序/i.test(message)) args.action = 'reorder';
       else if (/播放|play/i.test(message)) args.action = 'play';
       else if (/删除|移除/i.test(message)) args.action = 'remove';
@@ -708,9 +757,25 @@ export class TaskPlanner {
       }
       const moodMap = { '史诗': 'epic', '平静': 'calm', '紧张': 'tense', '欢快': 'happy', '悲伤': 'sad', '神秘': 'mysterious', '战斗': 'battle' };
       for (const [kw, v] of Object.entries(moodMap)) if (new RegExp(kw, 'i').test(message)) { args.mood = v; break; }
-      const volM = message.match(/音量[：:\s]*(\d+(?:\.\d+)?)/);
+      const volM = message.match(/(?:音量|volume)\D{0,6}(\d+(?:\.\d+)?)/i);
       if (volM) args.volume = Number(volM[1]);
       if (/循环|loop/i.test(message)) args.loop = true;
+    }
+
+    // ---- configure_presentation ----
+    if (intentName === 'configure_presentation') {
+      const volM = message.match(/(?:音量|volume)\D{0,6}(\d+(?:\.\d+)?)/i);
+      if (volM) args.volume = Number(volM[1]);
+      const hudM = message.match(/(?:hud|界面缩放|界面大小|界面尺寸)\D{0,6}(\d+(?:\.\d+)?)/i);
+      if (hudM) args.hudScale = Number(hudM[1]);
+      if (/(?:取消|解除).{0,3}静音|unmute/i.test(message)) args.muted = false;
+      else if (/静音|mute/i.test(message)) args.muted = true;
+      if (/减弱动态|减少动态|关闭震动|禁用抖动|reduced.?motion/i.test(message)) args.reducedMotion = true;
+      if (/色盲|色弱|colorblind/i.test(message)) args.colorblind = true;
+      if (/隐藏.*(?:最佳|最高).*(?:分数|得分)/i.test(message)) args.showBestScore = false;
+      else if (/显示.*(?:最佳|最高).*(?:分数|得分)/i.test(message)) args.showBestScore = true;
+      if (/(?:关闭|隐藏|不要).{0,4}成就弹窗/i.test(message)) args.achievementToasts = false;
+      else if (/成就弹窗|成就提示/i.test(message)) args.achievementToasts = true;
     }
 
     // ---- generate_story ----
