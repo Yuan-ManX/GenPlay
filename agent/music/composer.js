@@ -47,7 +47,8 @@ function generateMelody(scale, progression, rng, bars, beatsPerBar) {
     const dur = rng() < 0.3 ? 0.5 : 0.25;
     notes.push({
       note: midiToNoteName(midi),
-      start: beat * 0.25,
+      // Beat timeline: one melody slot per beat across all bars.
+      start: beat,
       duration: dur,
       velocity: 0.6 + rng() * 0.3,
     });
@@ -67,7 +68,8 @@ function generateBass(progression, rootMidi, rng, bars) {
     const bassNote = bassMidi + chord[0];
     notes.push({
       note: midiToNoteName(bassNote),
-      start: bar * 4 * 0.25,
+      // Beat timeline: bass root lands on the first beat of each bar.
+      start: bar * 4,
       duration: 1.0,
       velocity: 0.7,
     });
@@ -76,7 +78,7 @@ function generateBass(progression, rootMidi, rng, bars) {
       const fifth = bassMidi + chord[2] || bassMidi + 7;
       notes.push({
         note: midiToNoteName(fifth),
-        start: bar * 4 * 0.25 + 2 * 0.25,
+        start: bar * 4 + 2,
         duration: 1.0,
         velocity: 0.6,
       });
