@@ -5,18 +5,20 @@
  * Each SFX entry has: id, name, trigger, url (optional), volume.
  * AI-native: the agent can describe desired music mood and the tool records
  * it as a prompt field for later asset generation.
+ * Runtime actions (mute / unmute / volume / stop / play) emit live audio
+ * commands so the studio preview responds without reloading the page.
  */
 
 export function manageAudioTool({ gameService }) {
   return {
     name: 'manage_audio',
-    description: 'Manage background music playlist and sound effects. Add, update, remove, reorder or list music tracks and SFX. Each track has name, mood, volume, loop; each SFX has name and trigger.',
+    description: 'Manage background music playlist and sound effects, and control live playback. Add, update, remove, reorder or list music tracks and SFX. Runtime actions mute/unmute/volume/stop/play command the studio preview audio engine directly.',
     parameters: {
       type: 'object',
       properties: {
         gameId: { type: 'string' },
         kind: { type: 'string', description: 'music | sfx' },
-        action: { type: 'string', description: 'add | update | remove | list | reorder | play' },
+        action: { type: 'string', description: 'add | update | remove | list | reorder | play | mute | unmute | volume | stop' },
         entryId: { type: 'string', description: 'Required for update/remove/play' },
         name: { type: 'string' },
         mood: { type: 'string', description: 'Music mood: epic | calm | tense | happy | sad | mysterious | battle' },
@@ -32,8 +34,9 @@ export function manageAudioTool({ gameService }) {
       if (!gameService) return { ok: false, error: 'Game service not ready' };
       if (!gameId) return { ok: false, error: 'gameId is required' };
       const act = (action || '').toLowerCase();
-      if (!['add', 'update', 'remove', 'list', 'reorder', 'play'].includes(act)) {
-        return { ok: false, error: 'action must be add | update | remove | list | reorder | play' };
+      const RUN_ACTIONS = ['mute', 'unmute', 'volume', 'stop'];
+      if (!['add', 'update', 'remove', 'list', 'reorder', 'play', ...RUN_ACTIONS].includes(act)) {
+        return { ok: false, error: 'action must be add | update | remove | list | reorder | play | mute | unmute | volume | stop' };
       }
       const k = (kind || 'music').toLowerCase();
       if (!['music', 'sfx'].includes(k)) return { ok: false, error: 'kind must be music | sfx' };
@@ -46,6 +49,35 @@ export function manageAudioTool({ gameService }) {
       const sfxBank = Array.isArray(audio.sfx) ? structuredClone(audio.sfx) : [];
       const list = k === 'music' ? playlist : sfxBank;
       const field = k === 'music' ? 'playlist' : 'sfx';
+
+      // Live playback controls: persist master state so the setting survives
+      // reloads, and emit a runtime command the preview consumes immediately.
+      if (RUN_ACTIONS.includes(act)) {
+        const master = { ...(audio.master || {}) };
+        if (act === 'mute') master.muted = true;
+        else if (act === 'unmute') master.muted = false;
+        else if (act === 'volume') {
+          let v = Number(volume);
+          if (!Number.isFinite(v)) return { ok: false, error: 'volume must be a number between 0 and 1' };
+          if (v > 1) v /= 100;
+          master.volume = Math.max(0, Math.min(1, v));
+        } else master.stopped = true;
+        if (act !== 'stop') master.stopped = false;
+        audio.master = master;
+        const updated = await gameService.update(gameId, { audio });
+        const labels = { mute: '已静音', unmute: '已取消静音', volume: `音量已设为 ${Math.round((master.volume ?? 0) * 100)}%`, stop: '已停止播放' };
+        return {
+          ok: true,
+          game: updated,
+          master,
+          summary: labels[act],
+          editorActions: [{
+            type: 'studio:audio-command',
+            gameId,
+            payload: { command: act === 'volume' ? 'volume' : act, value: master.volume, muted: !!master.muted },
+          }],
+        };
+      }
 
       if (act === 'list') {
         return {
@@ -72,14 +104,39 @@ export function manageAudioTool({ gameService }) {
       }
 
       if (act === 'play') {
-        const entry = list.find((e) => e.id === entryId || e.name === entryId);
-        if (!entry) return { ok: false, error: `${k} entry not found: ${entryId}` };
-        return {
-          ok: true,
-          playing: entry,
-          summary: `正在播放「${entry.name}」`,
-          editorActions: [{ type: 'studio:play-audio', gameId, payload: { kind: k, entry } }],
-        };
+        const composed = Array.isArray(audio.composed) ? audio.composed : [];
+        // Resolve the requested entry; when the user just says "播放背景音乐"
+        // fall back to the first playlist item, then to the first composed track.
+        const entry = entryId
+          ? list.find((e) => e.id === entryId || e.name === entryId)
+          : list[0];
+        if (entry) {
+          // Prefer a composed track matching the entry mood so the live preview
+          // has concrete note data to schedule.
+          const track = composed.find((t) => t && t.mood === entry.mood) || composed[0] || null;
+          return {
+            ok: true,
+            playing: entry,
+            track,
+            summary: `正在播放「${entry.name}」`,
+            editorActions: [{ type: 'studio:audio-command', gameId, payload: { command: 'play', entry, track } }],
+          };
+        }
+        if (composed.length) {
+          const track = composed[0];
+          return {
+            ok: true,
+            playing: track,
+            track,
+            summary: `正在播放作曲「${track.name || track.mood}」`,
+            editorActions: [{
+              type: 'studio:audio-command',
+              gameId,
+              payload: { command: 'play', entry: { id: track.id || track.mood, name: track.name || track.mood, mood: track.mood }, track },
+            }],
+          };
+        }
+        return { ok: false, error: `${k} entry not found: ${entryId || '(empty playlist)'}` };
       }
 
       let target = null;
