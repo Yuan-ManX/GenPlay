@@ -25,9 +25,10 @@ export function dispatchCrewTool({ gameService, provider, assetLibrary } = {}) {
         genre: { type: 'string', description: '可选：指定主类型，否则由简报推断' },
         gameId: { type: 'string', description: '可选：聚焦已有游戏，蓝图围绕它展开' },
         autoApply: { type: 'boolean', description: '是否自动落地蓝图（创建+主题+场景）', default: false },
+        parkedBlueprint: { type: 'object', description: '可选：上一轮已构思好的蓝图对象。传入后跳过重新构思，直接进入落地级联。' },
       },
     },
-    async execute({ brief = '', genre, gameId, autoApply = false } = {}) {
+    async execute({ brief = '', genre, gameId, autoApply = false, parkedBlueprint = null } = {}) {
       if (!gameService) return { ok: false, error: '游戏数据服务未就绪' };
       // Keep crew wired to the latest services (provider may be set after boot)
       crew.provider = provider;
@@ -35,13 +36,27 @@ export function dispatchCrewTool({ gameService, provider, assetLibrary } = {}) {
 
       let focusGame = null;
       if (gameId) focusGame = await gameService.getById(gameId);
-      const ctx = {
-        genre,
-        gameId,
-        title: focusGame?.name,
-        brief,
-      };
-      const { blueprint, specialists, genre: pickedGenre } = await crew.run(brief, ctx);
+
+      // Parked-blueprint fast path: a previous turn already produced a
+      // blueprint and the user confirmed "落地这个蓝图". Skip re-running the
+      // specialist crew and jump straight to the apply cascade so the landed
+      // game matches exactly what was previewed.
+      let blueprint; let specialists; let pickedGenre;
+      if (parkedBlueprint && typeof parkedBlueprint === 'object') {
+        blueprint = parkedBlueprint;
+        specialists = [blueprint.narrative, blueprint.visual, blueprint.mechanics, blueprint.critique].filter(Boolean);
+        pickedGenre = genre || blueprint.genre || 'adventure';
+        autoApply = true;
+      } else {
+        const ctx = {
+          genre,
+          gameId,
+          title: focusGame?.name,
+          brief,
+        };
+        const ran = await crew.run(brief, ctx);
+        blueprint = ran.blueprint; specialists = ran.specialists; pickedGenre = ran.genre;
+      }
 
       const editorActions = [
         { type: 'studio:crew-blueprint', payload: { genre: pickedGenre, blueprint, specialists } },
@@ -94,9 +109,14 @@ export function dispatchCrewTool({ gameService, provider, assetLibrary } = {}) {
           }
         }
         const okCount = applied.filter((s) => !s.error).length;
+        // Re-fetch so the returned snapshot reflects theme/scenario updates
+        // applied by the cascade rather than the create-time object.
+        const finalGame = targetGame
+          ? (await gameService.getById(targetGame.id).catch(() => null)) || targetGame
+          : null;
         return {
-          ok: true, blueprint, specialists, applied,
-          game: targetGame, gameId: targetGame?.id,
+          ok: true, blueprint, specialists, applied, genre: pickedGenre,
+          game: finalGame, gameId: finalGame?.id,
           editorActions,
           summary: targetGame
             ? `创作团已构思《${blueprint.title}》蓝图并自动落地为新游戏（ID：${targetGame.id}），${okCount}/${applied.length} 步成功。`
@@ -105,7 +125,7 @@ export function dispatchCrewTool({ gameService, provider, assetLibrary } = {}) {
       }
 
       return {
-        ok: true, blueprint, specialists,
+        ok: true, blueprint, specialists, genre: pickedGenre,
         editorActions,
         summary: `多智能体创作团完成《${blueprint.title}》构思：${specialists.map((s) => `${s.role}`).join('、')} 协同出案，评审分 ${blueprint.critique?.score?.toFixed?.(2) || 'N/A'}。回复"落地这个蓝图"即可一键创建。`,
       };
