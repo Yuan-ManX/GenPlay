@@ -171,6 +171,11 @@ export const api = {
     const q = new URLSearchParams(params).toString();
     return request(`/community${q ? '?' + q : ''}`);
   },
+  getCommunityGame: (id) => request(`/community/${id}`),
+  listCommunityComments: (id, limit = 50) => request(`/community/${id}/comments?limit=${limit}`),
+  addCommunityComment: (id, { author, text } = {}) =>
+    request(`/community/${id}/comments`, { method: 'POST', body: JSON.stringify({ author, text }) }),
+  recordCommunityPlay: (id) => request(`/community/${id}/play`, { method: 'POST' }),
   likeCommunityGame: (id) => request(`/community/${id}/like`, { method: 'POST' }),
   remixCommunityGame: (id, { name, tweak } = {}) =>
     request(`/community/${id}/remix`, { method: 'POST', body: JSON.stringify({ name, tweak }) }),
@@ -180,9 +185,14 @@ export const api = {
   applyTemplate: (genre, { name, difficulty } = {}) =>
     request(`/templates/${genre}/apply`, { method: 'POST', body: JSON.stringify({ name, difficulty }) }),
 
+  // ---------- Bundle portability ----------
+  // Import a bundle produced by exportGame (object or JSON string).
+  importGame: (bundle, { newName } = {}) =>
+    request('/games/import', { method: 'POST', body: JSON.stringify({ bundle, newName }) }),
+
   // ---------- Crew ----------
-  dispatchCrew: ({ brief, genre, autoApply } = {}) =>
-    request('/crew/dispatch', { method: 'POST', body: JSON.stringify({ brief, genre, autoApply }) }),
+  dispatchCrew: ({ brief, genre, autoApply, parkedBlueprint } = {}) =>
+    request('/crew/dispatch', { method: 'POST', body: JSON.stringify({ brief, genre, autoApply, parkedBlueprint }) }),
 
   // ---------- Direct tool-backed game endpoints (REST, no /editor/action proxy) ----------
   exportGame: (id) => request(`/games/${id}/export`, { method: 'POST' }),
