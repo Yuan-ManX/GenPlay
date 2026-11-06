@@ -11,10 +11,12 @@ export class CrewController {
 
   dispatch = async (req, res) => {
     try {
-      const { brief, genre, autoApply } = req.body || {};
+      // parkedBlueprint lets the frontend land a previously previewed
+      // blueprint without re-running the specialist crew.
+      const { brief, genre, autoApply, parkedBlueprint } = req.body || {};
       const result = await this.agent.runTool({
         toolName: 'dispatch_crew',
-        args: { brief, genre, autoApply },
+        args: { brief, genre, autoApply, parkedBlueprint },
         sessionId: req.body?.sessionId,
       });
       res.json(result.result);
