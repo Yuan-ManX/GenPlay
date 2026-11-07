@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { GameController } from '../controllers/GameController.js';
 import { validateBody } from '../middlewares/validate.js';
+import { buildPlayableHtml } from '../../agent/export/playableBuilder.js';
 
 export function gameRoutes(gameService, agentService) {
   const router = Router();
@@ -45,6 +46,12 @@ export function gameRoutes(gameService, agentService) {
   router.post('/assets/user', c.createAsset);
   router.post('/assets/user/:id/install', c.installAsset);
 
+  // ---- Bundle import (before :id routes so the literal path is not shadowed) ----
+  // Accepts an export_game bundle (object or JSON string) and creates a new
+  // game record, closing the export -> import round-trip from the studio UI.
+  router.post('/import', (req, res) =>
+    invokeTool(req, res, 'import_game', (r) => ({ bundle: r.body?.bundle, newName: r.body?.newName })));
+
   // ---- Tool-backed REST sub-routes (direct tool invocation, no /editor/action proxy) ----
   // Each endpoint wraps an agent tool so the frontend can use REST semantics.
   router.post('/:id/export', (req, res) => invokeTool(req, res, 'export_game', (r) => ({ gameId: r.params.id })));
@@ -62,6 +69,20 @@ export function gameRoutes(gameService, agentService) {
   router.post('/:id/undo', (req, res) => invokeTool(req, res, 'undo_redo', (r) => ({ gameId: r.params.id, action: 'undo' })));
   router.post('/:id/redo', (req, res) => invokeTool(req, res, 'undo_redo', (r) => ({ gameId: r.params.id, action: 'redo' })));
   router.get('/:id/history', (req, res) => invokeTool(req, res, 'undo_redo', (r) => ({ gameId: r.params.id, action: 'history' })));
+  router.post('/:id/build', (req, res) => invokeTool(req, res, 'build_playable', (r) => ({ gameId: r.params.id, inline: r.body?.inline !== false })));
+  // Serve the standalone HTML build directly so it can be opened in a browser
+  // or downloaded without a second round-trip.
+  router.get('/:id/playable', async (req, res) => {
+    try {
+      const game = await gameService.getById(req.params.id);
+      if (!game) return res.status(404).json({ ok: false, error: 'Game not found' });
+      const built = await buildPlayableHtml(game);
+      if (!built.ok) return res.status(500).json({ ok: false, error: built.error });
+      res.type('text/html; charset=utf-8').send(built.html);
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
 
   // ---- By-id endpoints (must come after tool-backed sub-routes) ----
   router.get('/:id', c.getById);
