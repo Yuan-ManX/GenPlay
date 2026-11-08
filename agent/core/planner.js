@@ -32,6 +32,8 @@ const GENRE_ALIASES = {
   roguelike: 'roguelike', 肉鸽: 'roguelike', 地牢roguelike: 'roguelike', 随机地牢: 'roguelike',
 };
 
+import { resolvePlaybook } from './playbooks.js';
+
 export class TaskPlanner {
   constructor() {
     this.intentRules = [
@@ -64,6 +66,9 @@ export class TaskPlanner {
       { name: 'remix_game', pattern: /(复刻|remix|fork.*game|二创|改编|基于.*做.*|参照.*创作|clone.*game)/i, args: ['shareCode', 'sourceGameId', 'name', 'tweak'] },
       // Multi-agent specialist crew: coordinated creative brainstorm
       { name: 'dispatch_crew', pattern: /(创作团|专家团|多智能体|协同构思|团队.*设计|crew|specialist|brainstorm.*team|一起.*构思|企划)/i, args: ['brief', 'genre', 'autoApply'] },
+      // Task-level playbooks (BEFORE the single-step quality tools they bundle,
+      // so "打磨体验" runs the whole recipe instead of only the first analysis).
+      { name: 'run_playbook', pattern: /(?:打磨|润色|更好玩|优化体验|提升体验|整体提升|体验升级|上线检查|发布检查|验收|可以发布|能不能发布|准备好上线|准备上线|发布前|世界观|世界构建|剧情线|故事线|叙事构建|手感|操控感|操作手感|打击感|操作体验)/i, args: ['playbook', 'gameId', 'stopOnError'] },
       // Standalone playable build (BEFORE export_game so "导出可玩网页" builds a
       // runnable HTML file instead of a JSON bundle).
       { name: 'build_playable', pattern: /(可玩.*(?:html|网页|文件)|独立运行|单文件|html5|打包.*可玩|构建.*(?:可玩|html|网页)|导出.*可玩|生成.*可运行|离线.*游玩|build.*playable|playable)/i, args: ['gameId'] },
@@ -259,6 +264,12 @@ export class TaskPlanner {
     const args = {};
     const historyGameId = this._extractRecentGameId(history);
 
+    // Task-level recipes: resolve which playbook the phrasing refers to.
+    if (intentName === 'run_playbook') {
+      const key = resolvePlaybook(message);
+      if (key) args.playbook = key;
+    }
+
     if (intentName === 'create_game') {
       // Match patterns: 名叫XXX / 叫XXX / 名为XXX / 名叫"XXX" / 游戏名为XXX
       const nameMatch = message.match(/(?:名?叫|名(?:为|是)|游戏(?:名)?(?:为|叫|是))\s*["'「]?\s*([\w\u4e00-\u9fa5][\w\u4e00-\u9fa5\s\-_·]{0,29})/);
@@ -306,6 +317,7 @@ export class TaskPlanner {
     // never misses a tool that the orchestrator expects to receive a gameId.
     const targets = [
       'edit_game', 'debug_game', 'run_game', 'publish_game', 'describe_game',
+      'run_playbook',
       'generate_config', 'tweak_params', 'apply_scenario', 'apply_style_theme',
       'view_code', 'debug_with_diffs', 'install_snippet', 'edit_node_graph',
       'generate_npc', 'generate_asset', 'procedural_level', 'rapid_iterate',
