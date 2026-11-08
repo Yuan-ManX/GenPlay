@@ -5,6 +5,7 @@ import { PlanMemory } from './planMemory.js';
 import { LLMProvider } from '../providers/llm.js';
 import { listGenres } from '../templates/gameTemplates.js';
 import { UndoManager, MODIFYING_TOOLS } from './undoManager.js';
+import { repairToolCall } from './argRepair.js';
 
 const ALL_GENRES = listGenres().map((g) => g.key);
 
@@ -39,7 +40,7 @@ const TOOL_ACTION_LABELS = {
   manage_vfx: '管理特效', manage_environment: '管理环境', configure_physics: '配置物理',
   manage_quests: '管理任务', manage_economy: '管理经济', configure_controls: '配置操控',
   configure_presentation: '配置呈现', generate_config: '生成配置', install_snippet: '安装片段',
-  edit_node_graph: '编辑节点图', remix_game: '复刻',
+  edit_node_graph: '编辑节点图', remix_game: '复刻', run_playbook: '执行创作剧本',
 };
 
 /**
@@ -619,6 +620,12 @@ export class AgentOrchestrator {
 
   async runTool(toolName, args, context, sessionId) {
     try {
+      // Repair drifted names/keys/types up front so the undo snapshot below
+      // resolves the correct gameId even when the model sent `game_id`.
+      const fixedCall = repairToolCall(toolName, args, this.tools);
+      toolName = fixedCall.name;
+      args = fixedCall.args;
+
       // Capture undo snapshot before modifying tools so the user can revert.
       // Skips undo_redo itself (it manages the stack) and create_game (no
       // prior state to snapshot). Uses the game id from args or the session's
@@ -658,6 +665,7 @@ export class AgentOrchestrator {
     if (toolName === 'generate_game_template') return !!args.genre || !!args.name;
     if (toolName === 'remix_game') return !!(args.shareCode || args.sourceGameId || args.gameId);
     if (toolName === 'dispatch_crew') return !!args.brief || !!args.genre || true;
+    if (toolName === 'run_playbook') return !!(args.playbook && args.gameId);
     if (toolName === 'edit_game') return !!args.gameId;
     if (['debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree','build_playable','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls','configure_presentation'].includes(toolName)) return !!args.gameId;
     if (['list_games','generate_config','help','creative_ideate','recall_memory'].includes(toolName)) return true;
@@ -665,7 +673,7 @@ export class AgentOrchestrator {
   }
 
   toolNeedsGameId(toolName) {
-    return ['edit_game','debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree','build_playable','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls','configure_presentation'].includes(toolName);
+    return ['edit_game','debug_game','run_game','publish_game','describe_game','tweak_params','apply_scenario','apply_style_theme','view_code','debug_with_diffs','procedural_level','generate_asset','generate_npc','configure_game_meta','rapid_iterate','edit_config_field','edit_script','manage_npc','manage_asset','play_test','ai_suggest','manage_achievements','manage_scenes','manage_leaderboard','translate_game','balance_game','manage_audio','generate_story','profile_game','lint_scripts','control_runtime','audit_accessibility','design_progression','checkpoint_state','analyze_fun_factor','generate_tutorial','undo_redo','compose_music','generate_dialogue_tree','build_playable','manage_vfx','manage_environment','configure_physics','manage_quests','manage_economy','configure_controls','configure_presentation','run_playbook'].includes(toolName);
   }
 
   /**
