@@ -1,8 +1,10 @@
 /**
  * TemplateController - REST endpoints for game templates.
- * Lists available genre templates and applies one to create a new game.
+ * Lists the live genre catalog (Chinese label + icon + tagline) straight
+ * from the agent template engine, and applies one to create a new game.
  * Wraps the generate_game_template agent tool.
  */
+import { listGenres } from '../../agent/templates/gameTemplates.js';
 
 export class TemplateController {
   constructor(agentService) {
@@ -11,15 +13,13 @@ export class TemplateController {
 
   list = async (req, res) => {
     try {
-      // Return the template catalog from the tool's description.
+      // Catalog comes from the single source of truth (agent/templates) so a
+      // newly added genre shows up in the gallery without touching this route.
       const tools = this.agent.listTools();
       const tmpl = tools.find((t) => t.name === 'generate_game_template');
-      const genres = ['shooter', 'platformer', 'rpg', 'puzzle', 'tower', 'roguelike', 'racing', 'rhythm',
-        'adventure', 'battle', 'snake', 'breakout', 'maze', 'deckbuilder', 'metroidvania',
-        'idle', 'sandbox', 'visual_novel', 'auto_battler'];
       res.json({
         ok: true,
-        genres: genres.map((g) => ({ key: g, label: g })),
+        genres: listGenres(),
         description: tmpl?.description || 'Create a fully-featured starter game from a genre template.',
       });
     } catch (err) {
