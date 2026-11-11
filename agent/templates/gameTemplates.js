@@ -446,13 +446,47 @@ on player.hp <= 0: genplay::gameover
 
 const DEFAULT_GENRE = 'adventure';
 
+/**
+ * Presentation metadata per genre: icon + one-line pitch used by the
+ * template gallery (GET /api/templates) and by the agent when recommending
+ * a starting point. Kept next to TEMPLATES so a new genre only needs one
+ * entry in each map.
+ */
+const GENRE_META = {
+  shooter: { icon: '🔫', tagline: '弹幕突围，执掌火力全场' },
+  adventure: { icon: '🧭', tagline: '收集与躲避的轻量冒险' },
+  rpg: { icon: '⚔️', tagline: '回合制战斗与技能成长' },
+  puzzle: { icon: '🧩', tagline: '滑块解谜，烧脑闯关' },
+  battle: { icon: '🥊', tagline: '双人格斗，连招压制' },
+  racing: { icon: '🏎️', tagline: '极速躲避，风驰电掣' },
+  simulation: { icon: '🌾', tagline: '模拟采集，经营积累' },
+  platformer: { icon: '🍄', tagline: '平台跳跃，精准落地' },
+  tower: { icon: '🏰', tagline: '塔防守卫，策略布阵' },
+  snake: { icon: '🐍', tagline: '贪吃蛇成长，极限走位' },
+  breakout: { icon: '🧱', tagline: '打砖块弹射，清屏快感' },
+  maze: { icon: '🌫️', tagline: '迷宫探索，寻路求生' },
+  rhythm: { icon: '🎵', tagline: '节奏判定，踩点连击' },
+  roguelike: { icon: '🃏', tagline: '地城探险，随机构筑' },
+  deckbuilder: { icon: '🎴', tagline: '卡组构筑，策略出牌' },
+  metroidvania: { icon: '🗺️', tagline: '能力解锁，连通世界' },
+  idle: { icon: '⏱️', tagline: '放置增量，滚雪球成长' },
+  sandbox: { icon: '🏖️', tagline: '开放沙盒，自由建造' },
+  visual_novel: { icon: '📖', tagline: '分支剧情，沉浸叙事' },
+  auto_battler: { icon: '🤖', tagline: '布阵对战，自动博弈' },
+};
+
 export function getTemplate(genre) {
   const key = String(genre || DEFAULT_GENRE).toLowerCase();
   return TEMPLATES[key] || TEMPLATES[DEFAULT_GENRE];
 }
 
 export function listGenres() {
-  return Object.entries(TEMPLATES).map(([key, t]) => ({ key, label: t.label }));
+  return Object.entries(TEMPLATES).map(([key, t]) => ({
+    key,
+    label: t.label,
+    icon: GENRE_META[key]?.icon || '🎮',
+    tagline: GENRE_META[key]?.tagline || '',
+  }));
 }
 
 export default { getTemplate, listGenres };
