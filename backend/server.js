@@ -10,6 +10,12 @@ import { AgentService } from './services/AgentService.js';
 import { gameRoutes } from './routes/games.js';
 import { chatRoutes } from './routes/chat.js';
 import { editorRoutes } from './routes/editor.js';
+import { versionRoutes } from './routes/versions.js';
+import { analyticsRoutes } from './routes/analytics.js';
+import { preferenceRoutes } from './routes/preferences.js';
+import { communityRoutes } from './routes/community.js';
+import { templateRoutes } from './routes/templates.js';
+import { crewRoutes } from './routes/crew.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -46,9 +52,15 @@ const gameService = new GameService(config.dataDir);
 const agentService = new AgentService(gameService);
 
 // Routes (specific before :id params)
-app.use('/api/games', authGuard, gameRoutes(gameService));
+app.use('/api/games', authGuard, gameRoutes(gameService, agentService));
 app.use('/api/chat', authGuard, chatRoutes(agentService));
 app.use('/api/editor', authGuard, editorRoutes(agentService));
+app.use('/api/versions', authGuard, versionRoutes(agentService));
+app.use('/api/analytics', authGuard, analyticsRoutes(agentService));
+app.use('/api/preferences', authGuard, preferenceRoutes(agentService));
+app.use('/api/community', authGuard, communityRoutes(agentService));
+app.use('/api/templates', authGuard, templateRoutes(agentService));
+app.use('/api/crew', authGuard, crewRoutes(agentService));
 
 // Simple quota summary endpoint
 app.get('/api/meta', authGuard, async (_req, res) => {
