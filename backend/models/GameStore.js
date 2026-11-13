@@ -20,6 +20,9 @@ export class GameStore {
 
   async init() {
     await mkdir(this.dir, { recursive: true });
+    // Community interaction log (comments etc.) shared by both storage modes.
+    this.eventsFile = join(this.dir, 'community_events.json');
+    this.events = [];
     const dbFile = join(this.dir, 'genplay.db');
     try {
       const { DatabaseSync } = await import('node:sqlite');
@@ -88,12 +91,18 @@ export class GameStore {
         if (Array.isArray(arr)) arr.forEach((g) => cache.set(g.id || g.share_code, g));
       } catch { /* first boot */ }
     }
+    try {
+      const raw = await readFile(this.eventsFile, 'utf-8');
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) this.events = arr;
+    } catch { /* first boot */ }
   }
 
   async persistJson() {
     await writeFile(this.jsonFile, JSON.stringify(Array.from(this.cache.values()), null, 2), 'utf-8');
     await writeFile(this.publishedFile, JSON.stringify(Array.from(this.published.values()), null, 2), 'utf-8');
     await writeFile(this.assetsFile, JSON.stringify(Array.from(this.assets.values()), null, 2), 'utf-8');
+    await writeFile(this.eventsFile, JSON.stringify(this.events, null, 2), 'utf-8');
   }
 
   // ---- Games ----
@@ -338,6 +347,62 @@ export class GameStore {
       if (p) { p.likes = (p.likes || 0) + 1; await this.persistJson(); }
     }
     return true;
+  }
+
+  // ---- Community comments ----
+  /**
+   * Append a comment to a published game. Stored in the community_events
+   * table (SQLite) or community_events.json (JSON mode) so the history
+   * survives restarts in both storage modes.
+   */
+  async addPublishedComment(shareCode, { author, text } = {}) {
+    await this.ready;
+    if (!shareCode) return null;
+    const body = String(text || '').trim().slice(0, 280);
+    if (!body) return null;
+    const rec = {
+      id: genId('ev_'),
+      game_id: shareCode,
+      kind: 'comment',
+      payload: JSON.stringify({ author: String(author || 'Anonymous').slice(0, 32), text: body }),
+      created_at: new Date().toISOString(),
+    };
+    if (this.mode === 'sqlite') {
+      this.db.prepare(
+        'INSERT OR REPLACE INTO community_events (id, game_id, kind, payload, created_at) VALUES (?, ?, ?, ?, ?)',
+      ).run(rec.id, rec.game_id, rec.kind, rec.payload, rec.created_at);
+    } else {
+      this.events.push(rec);
+      await this.persistJson();
+    }
+    return { id: rec.id, shareCode, author: JSON.parse(rec.payload).author, text: body, createdAt: rec.created_at };
+  }
+
+  /** List comments for one published game in chronological order. */
+  async listPublishedComments(shareCode, { limit = 50 } = {}) {
+    await this.ready;
+    const cap = Math.max(1, Math.min(200, Number(limit) || 50));
+    let rows;
+    if (this.mode === 'sqlite') {
+      rows = this.db.prepare(
+        'SELECT id, payload, created_at FROM community_events WHERE game_id = ? AND kind = ? ORDER BY created_at ASC LIMIT ?',
+      ).all(shareCode, 'comment', cap);
+    } else {
+      rows = this.events
+        .filter((e) => e.game_id === shareCode && e.kind === 'comment')
+        .slice(0, cap)
+        .map((e) => ({ id: e.id, payload: e.payload, created_at: e.created_at }));
+    }
+    return rows.map((r) => {
+      let payload = {};
+      try { payload = JSON.parse(r.payload || '{}'); } catch { /* ignore malformed */ }
+      return {
+        id: r.id,
+        author: payload.author || 'Anonymous',
+        text: payload.text || '',
+        createdAt: r.created_at,
+      };
+    });
   }
 
   // ---- Asset Store ----
