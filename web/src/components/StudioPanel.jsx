@@ -2,6 +2,11 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../services/api.js';
 import events from '../services/events.js';
 import GamePreview from './GamePreview.jsx';
+import CommunityPanel from './CommunityPanel.jsx';
+import { TemplateGallery, CrewStudio } from './CreationHub.jsx';
+import ProfilePanel from './ProfilePanel.jsx';
+import LibraryPanel from './LibraryPanel.jsx';
+import PlaybookMenu from './PlaybookMenu.jsx';
 
 const GENRE_OPTIONS = [
   { key: 'adventure', label: '🗺️ 冒险' },
@@ -53,6 +58,9 @@ const SCENARIO_OPTIONS = [
 
 const TABS = [
   { key: 'basic', label: '基础', icon: '📋' },
+  { key: 'library', label: '作品库', icon: '📚' },
+  { key: 'templates', label: '模板', icon: '🧩' },
+  { key: 'crew', label: '创作团', icon: '🎬' },
   { key: 'config', label: '配置', icon: '⚙️' },
   { key: 'scripts', label: '脚本', icon: '💻' },
   { key: 'tweak', label: '调参', icon: '🎚️' },
@@ -66,8 +74,58 @@ const TABS = [
   { key: 'code', label: '源码', icon: '🧾' },
   { key: 'debug', label: '调试', icon: '🛠️' },
   { key: 'history', label: '版本', icon: '🗂️' },
+  { key: 'profile', label: '画像', icon: '🧠' },
   { key: 'analytics', label: '分析', icon: '📊' },
 ];
+
+// Editors are grouped into four task phases so the tab bar never shows all
+// nineteen entries at once. Each group remembers the last tab the user opened.
+const TAB_GROUPS = [
+  { key: 'create', label: '创作', icon: '✨', hint: '起稿、作品库、模板、创作团与创作画像', tabs: ['basic', 'library', 'templates', 'crew', 'profile'] },
+  { key: 'design', label: '设计', icon: '🎨', hint: '配置、脚本、调参、节点、资产、主题与剧情', tabs: ['config', 'scripts', 'tweak', 'nodes', 'assets', 'theme', 'scenario'] },
+  { key: 'operate', label: '运营', icon: '🚀', hint: '元设置、系统、社区、数据分析与版本', tabs: ['meta', 'systems', 'explore', 'analytics', 'history'] },
+  { key: 'build', label: '工程', icon: '🛠️', hint: '源码视图与调试工具', tabs: ['code', 'debug'] },
+];
+
+const groupOfTab = (key) => TAB_GROUPS.find((g) => g.tabs.includes(key)) || TAB_GROUPS[0];
+const tabsOfGroup = (groupKey) => {
+  const g = TAB_GROUPS.find((x) => x.key === groupKey) || TAB_GROUPS[0];
+  return TABS.filter((t) => g.tabs.includes(t.key));
+};
+
+// Two-level tab navigation shared by the editor view and the empty-state view.
+function TabNav({ tab, onPickGroup, onPickTab, navRef }) {
+  const activeGroup = groupOfTab(tab);
+  return (
+    <div className="tab-nav">
+      <nav className="tab-groups">
+        {TAB_GROUPS.map((g) => (
+          <button
+            key={g.key}
+            type="button"
+            className={`tab-group ${activeGroup.key === g.key ? 'active' : ''}`}
+            title={g.hint}
+            onClick={() => onPickGroup(g.key)}
+          >
+            <span>{g.icon}</span>{g.label}
+          </button>
+        ))}
+      </nav>
+      <nav className="tabs" ref={navRef}>
+        {tabsOfGroup(activeGroup.key).map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            className={`tab ${tab === t.key ? 'active' : ''} tab-${t.key}`}
+            onClick={() => onPickTab(t.key)}
+          >
+            <span className="tab-icon">{t.icon}</span>{t.label}
+          </button>
+        ))}
+      </nav>
+    </div>
+  );
+}
 
 const NODE_PALETTE = [
   { type: 'event', category: 'event', name: '游戏开始', desc: 'on start' },
@@ -111,8 +169,18 @@ const DEFAULT_COMMUNITY_GAMES = [
 export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessionId }) {
   const [form, setForm] = useState({ name: '', genre: 'adventure', description: '' });
   const [game, setGame] = useState(null);
-  const [tab, setTab] = useState('basic');
+  const [tab, setTab] = useState(() => {
+    // Restore the last visited editor tab so a page reload lands the user
+    // back where they were instead of always resetting to 基础.
+    try {
+      const saved = localStorage.getItem('genplay.studio-tab');
+      return TABS.some((x) => x.key === saved) ? saved : 'basic';
+    } catch (_) { return 'basic'; }
+  });
   const saveGameRef = useRef(null);
+  // Stable handle to the run action so the global Ctrl+Enter shortcut can
+  // trigger a run even before the current game finishes loading.
+  const runGameRef = useRef(null);
   const [runResult, setRunResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
@@ -128,6 +196,44 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
   const [undoHistory, setUndoHistory] = useState(null);
   const [musicPlaying, setMusicPlaying] = useState(null);
   const [playableInfo, setPlayableInfo] = useState(null);
+  // Crew blueprint pushed from the chat side via studio:crew-blueprint; the
+  // crew tab previews it and can land it without re-running the specialists.
+  const [crewBlueprint, setCrewBlueprint] = useState(null);
+  // Remember the last opened tab per group so switching groups back and forth
+  // returns the user to where they left off instead of the group's first tab.
+  const groupMemory = useRef({});
+  const tabNavRef = useRef(null);
+
+  const pickGroup = (groupKey) => {
+    const remembered = groupMemory.current[groupKey];
+    if (remembered) setTab(remembered);
+    else setTab(tabsOfGroup(groupKey)[0]?.key || 'basic');
+  };
+
+  // Keep the active group's memory in sync and scroll the active tab into view
+  // when the row overflows horizontally.
+  useEffect(() => {
+    groupMemory.current[groupOfTab(tab).key] = tab;
+    try { localStorage.setItem('genplay.studio-tab', tab); } catch (_) { /* storage blocked */ }
+    tabNavRef.current?.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [tab]);
+
+  // Alt+←/→ cycles across tab groups without touching the mouse.
+  useEffect(() => {
+    const handler = (e) => {
+      if (!e.altKey || e.metaKey || e.ctrlKey) return;
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const tag = (e.target?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      e.preventDefault();
+      const idx = TAB_GROUPS.findIndex((g) => g.tabs.includes(tab));
+      const step = e.key === 'ArrowRight' ? 1 : -1;
+      const next = TAB_GROUPS[(idx + step + TAB_GROUPS.length) % TAB_GROUPS.length];
+      pickGroup(next.key);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [tab]);
 
   useEffect(() => { if (gameId) loadGame(gameId); }, [gameId]);
 
@@ -357,8 +463,12 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
       flash('节点图已更新');
     }));
     // Agent-driven tab navigation (e.g. analytics tool opens analytics tab).
+    // Unknown keys are ignored so the tab bar never ends up with nothing
+    // selected; the legacy "preview" alias runs the game instead.
     offs.push(events.on('studio:open-tab', ({ tab: t }) => {
-      if (t) setTab(t);
+      if (!t) return;
+      if (t === 'preview') { runGameRef.current?.(); return; }
+      if (TABS.some((x) => x.key === t)) setTab(t);
     }));
     // Keyboard shortcut: Ctrl+S triggers save.
     offs.push(events.on('studio:save-game', () => {
@@ -445,6 +555,15 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
     offs.push(events.on('chat:trigger-redo', () => {
       if (game?.id) handleUndoRedo('redo');
     }));
+    // Crew blueprint card from the conversation side: park it in the crew tab
+    // so the user can inspect the specialists' output and land it there.
+    offs.push(events.on('studio:crew-blueprint', ({ payload }) => {
+      if (payload?.blueprint) {
+        setCrewBlueprint(payload);
+        setTab('crew');
+        flash(`创作团蓝图《${payload.blueprint.title || '未命名'}》已就绪，可在创作团页签落地`);
+      }
+    }));
     return () => offs.forEach((f) => f && f());
   }, [game?.id]);
 
@@ -508,6 +627,7 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
       flash(data.result.status === 'ok' ? '运行成功' : '存在告警');
     } catch (err) { alert(`运行失败: ${err.message}`); }
   };
+  runGameRef.current = runGame;
 
   const publishGame = async () => {
     if (!game) return;
@@ -537,7 +657,13 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
       events.emit('studio:refresh-game', { gameId: game.id });
       loadGame(game.id);
       onGamesChange?.();
-      flash(res.result?.summary || '已应用');
+      // Surface any schema self-healing applied to the call so the user knows
+      // a drifted parameter name/type was auto-corrected rather than silently.
+      const reps = res.toolRepairs || res.result?.toolRepairs;
+      const summary = res.result?.summary || '已应用';
+      flash(Array.isArray(reps) && reps.length
+        ? `${summary}（已自动校正 ${reps.length} 处参数：${reps.map((r) => r.from).join('、')}）`
+        : summary);
     } catch (err) { alert(err.message); }
   };
 
@@ -702,6 +828,8 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
             <button className="btn-primary pulse-on-hover" onClick={() => {
               document.querySelector('.create-row input')?.focus();
             }}>✨ 从零创建游戏</button>
+            <button className="btn-ghost" onClick={() => setTab('templates')}>🧩 模板库</button>
+            <button className="btn-ghost" onClick={() => setTab('library')}>📚 作品库</button>
             <button className="btn-ghost" onClick={() => setTab('explore')}>🌐 探索社区作品</button>
             <button className="btn-ghost" onClick={() => runEditorAction('creative_ideate') || flash('请先选择游戏或在左侧对话')}>
               💡 生成创意
@@ -754,12 +882,29 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
                 onPick={(g) => alert(`打开社区作品: ${g.name}\n(示例社区展示，正式发布后可直接导入或试玩)`)}
               />
             </section>
+          ) : tab === 'templates' || tab === 'crew' || tab === 'profile' || tab === 'library' ? (
+            <section style={{ margin: '0 28px 28px' }}>
+              <nav className="tabs" style={{ marginBottom: 14 }}>
+                {TABS.filter((t) => ['library', 'templates', 'crew', 'profile', 'explore'].includes(t.key)).map((t) => (
+                  <button key={t.key} className={`tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>
+                    <span className="tab-icon">{t.icon}</span>{t.label}
+                  </button>
+                ))}
+              </nav>
+              {tab === 'library' && <LibraryPanel selectedGameId={null} onSelectGame={onSelectGame} onGamesChange={onGamesChange} flash={flash} />}
+              {tab === 'templates' && <TemplateGallery onGamesChange={onGamesChange} onSelectGame={onSelectGame} flash={flash} />}
+              {tab === 'crew' && <CrewStudio onGamesChange={onGamesChange} onSelectGame={onSelectGame} crewBlueprint={crewBlueprint} flash={flash} />}
+              {tab === 'profile' && <ProfilePanel flash={flash} />}
+            </section>
           ) : (
             <div className="edit-empty">
               <div className="empty-emoji bounce">🎮</div>
               <p>从左侧选择游戏，或在上方创建一个新游戏开始创作。</p>
               <p className="edit-empty-sub">所有编辑器操作也可以在左侧 Agent 中用自然语言控制。</p>
               <div className="quick-prompts" style={{ marginTop: 24 }}>
+                <button className="chip" onClick={() => setTab('library')}>📚 打开作品库</button>
+                <button className="chip" onClick={() => setTab('templates')}>🧩 从模板快速起稿</button>
+                <button className="chip" onClick={() => setTab('crew')}>🎬 召集创作团构思</button>
                 <button className="chip" onClick={() => setTab('explore')}>🌐 浏览社区作品</button>
               </div>
             </div>
@@ -788,6 +933,12 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
                 <button className="btn-ghost" onClick={runGame}>▶ 运行</button>
                 <button className="btn-ghost" onClick={publishGame}>🚀 发布</button>
                 <button className="btn-ghost" onClick={fetchSuggestions}>💡 AI 建议</button>
+                <PlaybookMenu
+                  gameId={game.id}
+                  sessionId={sessionId}
+                  flash={flash}
+                  onFinished={() => { loadGame(game.id); onGamesChange?.(); }}
+                />
                 <button className="btn-ghost" onClick={() => runEditorAction('balance_game', { targetDifficulty: 'normal' })}>⚖️ 自动平衡</button>
                 <button className="btn-ghost" onClick={() => runEditorAction('translate_game', { targetLang: 'en' })}>🌐 翻译</button>
                 <button className="btn-ghost" onClick={() => runEditorAction('generate_story', {})}>📖 生成剧情</button>
@@ -818,17 +969,14 @@ export default function StudioPanel({ gameId, onGamesChange, onSelectGame, sessi
               </div>
             )}
 
-            <nav className="tabs">
-              {TABS.map((t) => (
-                <button key={t.key} className={`tab ${tab === t.key ? 'active' : ''} tab-${t.key}`}
-                  onClick={() => setTab(t.key)}>
-                  <span className="tab-icon">{t.icon}</span>{t.label}
-                </button>
-              ))}
-            </nav>
+            <TabNav tab={tab} onPickGroup={pickGroup} onPickTab={setTab} navRef={tabNavRef} />
 
             <div className="tab-body">
               {tab === 'basic' && <TabBasic game={game} setGame={setGame} />}
+              {tab === 'library' && <LibraryPanel selectedGameId={game?.id} onSelectGame={onSelectGame} onGamesChange={onGamesChange} flash={flash} />}
+              {tab === 'templates' && <TemplateGallery onGamesChange={onGamesChange} onSelectGame={onSelectGame} flash={flash} />}
+              {tab === 'crew' && <CrewStudio onGamesChange={onGamesChange} onSelectGame={onSelectGame} crewBlueprint={crewBlueprint} flash={flash} />}
+              {tab === 'profile' && <ProfilePanel flash={flash} />}
               {tab === 'config' && <TabConfig game={game} setGame={setGame} />}
               {tab === 'scripts' && <TabScripts game={game} setGame={setGame} />}
               {tab === 'tweak' && <TabTweak game={game} setGame={setGame} runEditorAction={runEditorAction} />}
@@ -1722,6 +1870,12 @@ function TabSystems({ game }) {
   const economy = game?.economy || {};
   const currencies = Array.isArray(economy.currencies) ? economy.currencies : [];
   const shop = Array.isArray(economy.shop) ? economy.shop : [];
+  const presentation = config.presentation || {};
+  const audio = game?.audio || {};
+  const composedCount = Array.isArray(audio.composed) ? audio.composed.length : 0;
+  const playlistCount = Array.isArray(audio.playlist) ? audio.playlist.length : 0;
+  const sfxCount = Array.isArray(audio.sfx) ? audio.sfx.length : 0;
+  const achievements = Array.isArray(game?.meta?.achievements) ? game.meta.achievements : [];
 
   const PHYS_ROWS = [
     ['gravity', '重力'], ['jumpForce', '跳跃力'], ['moveSpeed', '移动速度'],
@@ -1793,6 +1947,58 @@ function TabSystems({ game }) {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="meta-section">
+        <h5>🎵 音频与沉浸</h5>
+        <div className="chip-row">
+          <span className="chip">作曲 <b>{composedCount}</b></span>
+          <span className="chip">播放列表 <b>{playlistCount}</b></span>
+          <span className="chip">音效 <b>{sfxCount}</b></span>
+          {presentation.volume !== undefined && (
+            <span className="chip">主音量 <b>{Math.round(presentation.volume * 100)}%</b></span>
+          )}
+          {presentation.muted && <span className="chip chip-off">🔇 静音</span>}
+          {(presentation.reducedMotion || presentation.colorblind) && (
+            <span className="chip">
+              {presentation.reducedMotion ? '减弱动态' : ''}
+              {presentation.reducedMotion && presentation.colorblind ? ' · ' : ''}
+              {presentation.colorblind ? '色盲友好' : ''}
+            </span>
+          )}
+          {presentation.hudScale !== undefined && <span className="chip">HUD <b>{presentation.hudScale}</b></span>}
+        </div>
+        {(presentation.showBestScore !== undefined || presentation.achievementToasts !== undefined) && (
+          <div className="chip-row">
+            {presentation.showBestScore !== undefined && (
+              <span className="chip">最佳分数 {presentation.showBestScore ? '✅' : '➖'}</span>
+            )}
+            {presentation.achievementToasts !== undefined && (
+              <span className="chip">成就弹窗 {presentation.achievementToasts ? '✅' : '➖'}</span>
+            )}
+          </div>
+        )}
+        {composedCount === 0 && playlistCount === 0 && sfxCount === 0 ? (
+          <p className="field-hint">暂无音频。对 Agent 说“为游戏生成原创配乐”或“加一个跳跃音效”即可创建；说“静音”“音量调到 40%”可实时控制播放。</p>
+        ) : (
+          <p className="field-hint">对 Agent 说“静音”“取消静音”“音量调到 40%”“播放主菜单音乐”即可实时控制预览播放。</p>
+        )}
+      </div>
+
+      <div className="meta-section">
+        <h5>🏆 成就解锁</h5>
+        {achievements.length === 0 ? (
+          <p className="field-hint">暂无成就。对 Agent 说“添加一个成就：单局得分超过 1000”即可配置解锁条件。</p>
+        ) : (
+          <div className="chip-row">
+            {achievements.map((a) => (
+              <span key={a.id} className="chip" title={a.condition || ''}>
+                {a.icon || '🏅'} {a.name} · {a.condition || 'score >= 100'}
+              </span>
+            ))}
+          </div>
+        )}
+        <p className="field-hint">最佳分数与解锁进度保存在本地，重开浏览器后仍会保留。</p>
       </div>
 
       <div className="meta-section">
@@ -2026,7 +2232,6 @@ function TabMeta({ game, setGame, runEditorAction }) {
 }
 
 function TabExplore({ exploreFilter, setExploreFilter, onPick }) {
-  const games = DEFAULT_COMMUNITY_GAMES.filter((g) => exploreFilter === 'all' || g.genre === exploreFilter);
   const tags = [
     { key: 'all', label: '全部' },
     ...GENRE_OPTIONS.map((g) => ({ key: g.key, label: g.label })),
@@ -2043,27 +2248,11 @@ function TabExplore({ exploreFilter, setExploreFilter, onPick }) {
           </button>
         ))}
       </div>
-      <div className="explore-grid">
-        {games.map((g) => (
-          <div key={g.id} className="explore-card" onClick={() => onPick(g)}>
-            <div className="explore-cover">
-              <span>{g.icon}</span>
-              {g.badge && <span className="explore-cover-badge">{g.badge}</span>}
-            </div>
-            <div className="explore-body">
-              <div className="explore-title">{g.name}</div>
-              <div className="explore-author">@{g.author}</div>
-              <div className="explore-stats">
-                <span>▶ {g.plays.toLocaleString()}</span>
-                <span>❤ {g.likes}</span>
-                <span style={{ marginLeft: 'auto' }}>
-                  {GENRE_OPTIONS.find((o) => o.key === g.genre)?.label || g.genre}
-                </span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <CommunityPanel
+        exploreFilter={exploreFilter}
+        fallback={DEFAULT_COMMUNITY_GAMES}
+        onPick={onPick}
+      />
     </div>
   );
 }
