@@ -49,6 +49,8 @@ export class GameService {
   getPublished(code) { return this.store.getPublished(code); }
   bumpPlay(code) { return this.store.bumpPublishedPlay(code); }
   likePublished(code) { return this.store.likePublished(code); }
+  addComment(code, comment) { return this.store.addPublishedComment(code, comment); }
+  listComments(code, options) { return this.store.listPublishedComments(code, options); }
 
   // ---- Asset store integration ----
   searchAssetsLibrary(query = {}) { return { ok: true, results: this.assetLibrary.search(query), totalTags: this.assetLibrary.allTags().length }; }
