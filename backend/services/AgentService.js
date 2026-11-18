@@ -5,13 +5,20 @@
  * 执行原子操作（与 Agent 对话内部工具共享同一条执行链路）。
  */
 import { createAgent } from '../../agent/index.js';
+import { MemoryStore } from '../../agent/core/memory.js';
+import path from 'node:path';
 import config from '../config/index.js';
 
 export class AgentService {
   constructor(gameService) {
     this.gameService = gameService;
+    // Persist conversation memory so recall_memory survives process restarts.
+    this.memory = new MemoryStore(40, 30, {
+      persistPath: path.join(config.dataDir, 'agent-memory.json'),
+    });
     this.agent = createAgent({
       gameService,
+      memory: this.memory,
       provider: {
         apiKey: config.llm.apiKey || undefined,
         baseURL: config.llm.baseURL || undefined,
