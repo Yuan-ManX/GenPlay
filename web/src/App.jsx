@@ -5,7 +5,14 @@ import Sidebar from './components/Sidebar.jsx';
 import ChatPanel from './components/ChatPanel.jsx';
 import StudioPanel from './components/StudioPanel.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
+import PlayShare from './components/PlayShare.jsx';
 import './styles/global.css';
+
+// Parse "#/play/gp_xxx" share links into a share code.
+function readShareRoute() {
+  const m = (window.location.hash || '').match(/^#\/play\/(gp_[a-z0-9]+)/i);
+  return m ? m[1] : null;
+}
 
 export default function App() {
   const [layout, setLayout] = useState('split'); // 'chat' | 'studio' | 'split'
@@ -13,6 +20,20 @@ export default function App() {
   const [selectedGameId, setSelectedGameId] = useState(null);
   const [games, setGames] = useState([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shareCode, setShareCode] = useState(readShareRoute);
+
+  // Hash routing: share links render the standalone play page instead of
+  // the studio; clearing the hash returns to the studio without a reload.
+  useEffect(() => {
+    const onHash = () => setShareCode(readShareRoute());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const exitShare = () => {
+    window.location.hash = '';
+    setShareCode(null);
+  };
 
   const refreshGames = async () => {
     try {
@@ -85,46 +106,52 @@ export default function App() {
 
   return (
     <div className="app">
-      <Sidebar
-        layout={layout}
-        onLayoutChange={setLayout}
-        games={games}
-        selectedGameId={selectedGameId}
-        onSelectGame={(id) => {
-          setSelectedGameId(id);
-          setLayout((l) => (l === 'chat' ? 'split' : l));
-        }}
-        onRefreshGames={refreshGames}
-      />
-      <main className={`main layout-${layout}`}>
-        {(layout === 'chat' || layout === 'split') && (
-          <section className="col col-chat warm">
-            <ChatPanel
-              sessionId={sessionId}
-              onSessionChange={setSessionId}
-              onGamesChanged={refreshGames}
-              selectedGameId={selectedGameId}
-              onSelectGame={setSelectedGameId}
-            />
-          </section>
-        )}
-        {(layout === 'studio' || layout === 'split') && (
-          <section className="col col-studio cool">
-            <StudioPanel
-              gameId={selectedGameId}
-              onGamesChange={refreshGames}
-              onSelectGame={setSelectedGameId}
-              sessionId={sessionId}
-            />
-          </section>
-        )}
-      </main>
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        selectedGameId={selectedGameId}
-        sessionId={sessionId}
-      />
+      {shareCode ? (
+        <PlayShare shareCode={shareCode} onExit={exitShare} />
+      ) : (
+        <>
+          <Sidebar
+            layout={layout}
+            onLayoutChange={setLayout}
+            games={games}
+            selectedGameId={selectedGameId}
+            onSelectGame={(id) => {
+              setSelectedGameId(id);
+              setLayout((l) => (l === 'chat' ? 'split' : l));
+            }}
+            onRefreshGames={refreshGames}
+          />
+          <main className={`main layout-${layout}`}>
+            {(layout === 'chat' || layout === 'split') && (
+              <section className="col col-chat warm">
+                <ChatPanel
+                  sessionId={sessionId}
+                  onSessionChange={setSessionId}
+                  onGamesChanged={refreshGames}
+                  selectedGameId={selectedGameId}
+                  onSelectGame={setSelectedGameId}
+                />
+              </section>
+            )}
+            {(layout === 'studio' || layout === 'split') && (
+              <section className="col col-studio cool">
+                <StudioPanel
+                  gameId={selectedGameId}
+                  onGamesChange={refreshGames}
+                  onSelectGame={setSelectedGameId}
+                  sessionId={sessionId}
+                />
+              </section>
+            )}
+          </main>
+          <CommandPalette
+            open={paletteOpen}
+            onClose={() => setPaletteOpen(false)}
+            selectedGameId={selectedGameId}
+            sessionId={sessionId}
+          />
+        </>
+      )}
     </div>
   );
 }
