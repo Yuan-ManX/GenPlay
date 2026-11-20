@@ -34,6 +34,7 @@ function emit(event, payload) {
 // studio:undo-status { gameId, payload: { canUndo, canRedo, pastCount, futureCount } }
 // studio:undo-history { gameId, payload: { past, future } }
 // studio:set-story { gameId, payload: { story } }
+// studio:playable-ready { gameId, payload: { fileName, sizeKb, playUrl, genre } }
 // sidebar:refresh-list { reason }
 // chat:append-suggestions { items: [{label, message}] }
 // chat:trigger-undo, chat:trigger-redo — keyboard shortcut signals
