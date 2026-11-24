@@ -37,7 +37,8 @@ export function publishGameTool({ gameService }) {
         return { ok: false, error: '发布失败：无法写入社区索引' };
       }
       const shareCode = pub.shareCode;
-      const shareLink = `/play/${shareCode}`;
+      // Hash-based client route so the link works on any static host.
+      const shareLink = `#/play/${shareCode}`;
       // Ensure shareLink is stamped on the game record (publishGame sets
       // status + shareCode but not the friendly link).
       const updated = await gameService.update(gameId, {
