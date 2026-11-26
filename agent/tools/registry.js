@@ -26,6 +26,7 @@ import { installSnippetTool } from './installSnippet.js';
 import { updateBasicInfoTool } from './updateBasicInfo.js';
 import { remixGameTool } from './remixGame.js';
 import { dispatchCrewTool } from './dispatchCrew.js';
+import { runPlaybookTool } from './runPlaybook.js';
 import { exportGameTool } from './exportGame.js';
 import { importGameTool } from './importGame.js';
 import { screenshotGameTool } from './screenshotGame.js';
@@ -57,6 +58,16 @@ import { generateTutorialTool } from './generateTutorial.js';
 import { undoRedoTool } from './undoRedo.js';
 import { composeMusicTool } from './composeMusic.js';
 import { generateDialogueTreeTool } from './generateDialogueTree.js';
+import { buildPlayableTool } from './buildPlayable.js';
+import { recallMemoryTool } from './recallMemory.js';
+import { manageVfxTool } from './manageVfx.js';
+import { manageEnvironmentTool } from './manageEnvironment.js';
+import { configurePhysicsTool } from './configurePhysics.js';
+import { manageQuestsTool } from './manageQuests.js';
+import { manageEconomyTool } from './manageEconomy.js';
+import { configureControlsTool } from './configureControls.js';
+import { configurePresentationTool } from './configurePresentation.js';
+import { manageCommunityTool } from './manageCommunity.js';
 
 /**
  * ToolRegistry - GenPlay toolchain registry.
@@ -65,6 +76,8 @@ import { generateDialogueTreeTool } from './generateDialogueTree.js';
  * All tools may return editorActions that ChatPanel forwards to StudioPanel
  * via the events bus so frontend state reflects changes live.
  */
+import { repairToolCall } from '../core/argRepair.js';
+
 export class ToolRegistry {
   constructor(services = {}) {
     this.services = services;
@@ -101,6 +114,7 @@ export class ToolRegistry {
     this.register(updateBasicInfoTool(this.services));
     this.register(remixGameTool(this.services));
     this.register(dispatchCrewTool(this.services));
+    this.register(runPlaybookTool(this.services));
     this.register(exportGameTool(this.services));
     this.register(importGameTool(this.services));
     this.register(screenshotGameTool(this.services));
@@ -132,6 +146,16 @@ export class ToolRegistry {
     this.register(undoRedoTool(this.services));
     this.register(composeMusicTool(this.services));
     this.register(generateDialogueTreeTool(this.services));
+    this.register(buildPlayableTool(this.services));
+    this.register(recallMemoryTool(this.services));
+    this.register(manageVfxTool(this.services));
+    this.register(manageEnvironmentTool(this.services));
+    this.register(configurePhysicsTool(this.services));
+    this.register(manageQuestsTool(this.services));
+    this.register(manageEconomyTool(this.services));
+    this.register(configureControlsTool(this.services));
+    this.register(configurePresentationTool(this.services));
+    this.register(manageCommunityTool(this.services));
   }
 
   setProvider(provider) {
@@ -160,12 +184,17 @@ export class ToolRegistry {
   get(name) { return this.tools.get(name) || null; }
 
   async invoke(name, args, context = {}) {
-    const tool = this.tools.get(name);
+    // Self-healing: repair drifted tool names / argument keys / value types
+    // against the declared schema before execution. Repairs are recorded on
+    // the result so callers can surface what was auto-corrected.
+    const fixed = repairToolCall(name, args, this);
+    const tool = this.tools.get(fixed.name);
     if (!tool) return { ok: false, error: `Unknown tool: ${name}` };
     try {
-      const raw = await tool.execute({ ...context, ...args });
+      const raw = await tool.execute({ ...context, ...fixed.args });
       if (!raw || typeof raw !== 'object') return { ok: false, error: 'Tool returned invalid shape' };
       if (raw.ok === undefined) raw.ok = true;
+      if (fixed.repairs.length) raw.toolRepairs = fixed.repairs;
       return raw;
     } catch (err) {
       return { ok: false, error: err.message || String(err) };
